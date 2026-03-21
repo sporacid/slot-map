@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "spore-slot-map",
+  "version": "1.0",
+  "builtin-baseline": "120deac3062162151622ca4860575a33844ba10b",
+  "dependencies": [
+    {
+      "name": "catch2",
+      "features": [
+        "thread-safe-assertions"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+name: Continuous Integration
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+jobs:
+  build:
+    name: Build Project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install Dependencies
+        run: |
+          sudo apt-get -qq update &&
+          sudo apt-get install -y build-essential libtbb-dev ninja-build
+      - name: Install CMake
+        uses: lukka/get-cmake@v3.31.6
+      - name: Install Vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '120deac3062162151622ca4860575a33844ba10b'
+      - name: Run CMake
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: 'ninja-vcpkg'
+          buildPreset: 'ninja-vcpkg-release'
+          testPreset: 'ninja-vcpkg-test-release'
+          testPresetAdditionalArgs: "['--no-tests=error','--output-on-failure','--verbose']"
+      - name: Tag Version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "${GITHUB_ACTOR}" &&
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com" &&
+          VERSION=$(bash .github/scripts/get_version.sh) &&
+          $(echo -n $VERSION > VERSION) &&
+          git checkout -B releases/v${VERSION%.*.*} &&
+          git add VERSION &&
+          git commit -m "chore: Update version to v$VERSION" &&
+          git tag -af v$VERSION -m "Auto-generated semantic tag v$VERSION" &&
+          git push --set-upstream origin releases/v${VERSION%.*.*} --force &&
+          git push origin v$VERSION --force

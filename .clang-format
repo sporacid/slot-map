@@ -1,0 +1,47 @@
+#http://clang.llvm.org/docs/ClangFormatStyleOptions.html
+
+BasedOnStyle: Microsoft
+Standard: c++20
+TabWidth: 4
+ContinuationIndentWidth: 4
+
+BraceWrapping:
+  AfterUnion: true
+
+Cpp11BracedListStyle: false
+AlignAfterOpenBracket: DontAlign
+AlignEscapedNewlines: Left
+AllowBreakBeforeNoexceptSpecifier: OnlyWithParen
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCompoundRequirementOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Empty
+ColumnLimit: 0
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+FixNamespaceComments: False
+IndentCaseLabels: true
+IndentPPDirectives: AfterHash
+IndentRequiresClause: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: All
+PointerAlignment: Left
+RequiresClausePosition: OwnLine
+SpaceAfterCStyleCast: true
+SpaceBeforeCpp11BracedList: true
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '.*\.meta.hpp'
+    Priority: 4
+  - Regex: '"spore/engine/pch\.hpp"'
+    Priority: 1
+    SortPriority: 1
+  - Regex: '"spore/.*"'
+    Priority: 1
+    SortPriority: 2
+  - Regex: '".*"'
+    Priority: 2
+    SortPriority: 3
+  - Regex: '^<.*>'
+    Priority: 3
+    SortPriority: 4
