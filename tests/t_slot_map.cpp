@@ -1,17 +1,9 @@
-// #define SPORE_SLOT_MAP_ASSERT(Cond, ...)                          \
-//     do                                                            \
-//     {                                                             \
-//         if (not(Cond)) [[unlikely]]                               \
-//         {                                                         \
-//             throw std::runtime_error("assertion failed: " #Cond); \
-//         }                                                         \
-//     } while (false)
-
 #include "spore/slot_map.hpp"
 
 #include "catch2/catch_all.hpp"
 
 #include <random>
+#include <thread>
 
 constexpr size_t capacity = 1024;
 
