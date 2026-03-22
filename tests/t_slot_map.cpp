@@ -1,3 +1,13 @@
+#define SPORE_SLOT_MAP_ASSERT_NOEXCEPT (false)
+#define SPORE_SLOT_MAP_ASSERT(Expr)                               \
+    do                                                            \
+    {                                                             \
+        if (not(Expr)) [[unlikely]]                               \
+        {                                                         \
+            throw std::runtime_error("assertion failed: " #Expr); \
+        }                                                         \
+    } while (false)
+
 #include "spore/slot_map.hpp"
 
 #include "catch2/catch_all.hpp"
@@ -96,8 +106,9 @@ TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
         constexpr size_t action_max = 30'000;
         constexpr size_t read_num = 3;
 
+        slot_map_t map;
+
         std::atomic<bool> start;
-        std::unique_ptr<slot_map_t> map = std::make_unique<slot_map_t>();
 
         std::vector<std::jthread> threads;
         threads.reserve(parallelism);
@@ -131,7 +142,7 @@ TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
                     for (size_t index = 0; index < iteration_num; ++index)
                     {
                         const size_t expected = expected_at(index);
-                        const slot_key key = map->emplace(expected);
+                        const slot_key key = map.emplace(expected);
                         keys.push_back(key);
                     }
 
@@ -141,7 +152,7 @@ TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
                         {
                             const size_t expected = expected_at(index);
                             const slot_key key = keys[index];
-                            const auto [value] = map->at(key);
+                            const auto [value] = map.at(key);
                             REQUIRE(value == expected);
                         }
                     }
@@ -149,7 +160,7 @@ TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
                     for (size_t index = 0; index < iteration_num; ++index)
                     {
                         const slot_key key = keys[index];
-                        const bool erased = map->erase(key);
+                        const bool erased = map.erase(key);
                         REQUIRE(erased);
                     }
 

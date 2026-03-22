@@ -15,7 +15,11 @@
 #include <vector>
 
 #ifndef SPORE_SLOT_MAP_ASSERT
-#    define SPORE_SLOT_MAP_ASSERT(...) assert(__VA_ARGS__)
+#    define SPORE_SLOT_MAP_ASSERT(Expr) assert(Expr)
+#endif
+
+#ifndef SPORE_SLOT_MAP_ASSERT_NOEXCEPT
+#    define SPORE_SLOT_MAP_ASSERT_NOEXCEPT (true)
 #endif
 
 #ifndef SPORE_SLOT_MAP_MIN_PAGE_SIZE
@@ -554,7 +558,7 @@ namespace spore
                 return _bit_it != other._bit_it;
             }
 
-            constexpr value_type& operator*() const noexcept
+            constexpr value_type& operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(_self != nullptr);
 
@@ -692,7 +696,7 @@ namespace spore
         }
 
         template <typename... args_t>
-        [[nodiscard]] constexpr key_t emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...>)
+        [[nodiscard]] constexpr key_t emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...> and SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             const std::optional<key_t> key = try_emplace(std::forward<args_t>(args)...);
             SPORE_SLOT_MAP_ASSERT(key.has_value());
@@ -738,7 +742,7 @@ namespace spore
             return const_cast<basic_slot_map&>(*this).find(key);
         }
 
-        [[nodiscard]] constexpr value_t& at(const key_t& key) noexcept
+        [[nodiscard]] constexpr value_t& at(const key_t& key) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             const index_type index = key_traits_t::index(key);
 
@@ -835,7 +839,7 @@ namespace spore
         std::unique_ptr<control> _control;
         std::unique_ptr<block> _blocks[opts_v.block_num] {};
 
-        [[nodiscard]] constexpr block* try_get_block(const index_type index) const noexcept
+        [[nodiscard]] constexpr block* try_get_block(const index_type index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < opts_v.block_num);
 
@@ -852,7 +856,7 @@ namespace spore
             return _blocks[index].get();
         }
 
-        [[nodiscard]] constexpr block& get_block(const index_type index) noexcept
+        [[nodiscard]] constexpr block& get_block(const index_type index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < opts_v.block_num);
 
