@@ -3,12 +3,28 @@
   "name": "spore-slot-map",
   "version": "1.0",
   "builtin-baseline": "120deac3062162151622ca4860575a33844ba10b",
-  "dependencies": [
-    {
-      "name": "catch2",
-      "features": [
-        "thread-safe-assertions"
+  "default-features": [
+    "with-benchmarks",
+    "with-tests"
+  ],
+  "features": {
+    "with-benchmarks": {
+      "description": "build benchmarks",
+      "dependencies": [
+        "argparse",
+        "plf-colony"
+      ]
+    },
+    "with-tests": {
+      "description": "build tests",
+      "dependencies": [
+        {
+          "name": "catch2",
+          "features": [
+            "thread-safe-assertions"
+          ]
+        }
       ]
     }
-  ]
+  }
 }

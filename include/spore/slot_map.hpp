@@ -1,9 +1,7 @@
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <bit>
-#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -11,10 +9,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <tuple>
-#include <vector>
 
 #ifndef SPORE_SLOT_MAP_ASSERT
+#    include <cassert>
 #    define SPORE_SLOT_MAP_ASSERT(Expr) assert(Expr)
 #endif
 
