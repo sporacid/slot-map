@@ -1,3 +1,9 @@
+#define SPORE_SLOT_MAP_ASSERT(...)
+#define SPORE_SLOT_MAP_ASSERT_NOEXCEPT (true)
+#define SPORE_SLOT_MAP_MIN_PAGE_SIZE 0xfff
+#define SPORE_SLOT_MAP_MIN_SLOT_NUM 128
+#define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
+
 #include "spore/slot_map.hpp"
 
 #include "plf/colony.hpp"
@@ -254,6 +260,13 @@ int main()
             bench_config {
                 .parallelism = 1,
                 .iteration = 10,
+                .action_min = 10'000,
+                .action_max = 50'000,
+                .read_num = 10,
+            },
+            bench_config {
+                .parallelism = 1,
+                .iteration = 10,
                 .action_min = 100'000,
                 .action_max = 500'000,
                 .read_num = 10,
@@ -266,7 +279,8 @@ int main()
         // slot_map
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
-                slot_map_st<slot_key, bench_value<size_v>, 1'048'576> map;
+                constexpr size_t capacity = std::ranges::max(std::span { std::data(configs), std::size(configs) }, std::ranges::less {}, &bench_config::action_max).action_max;
+                slot_map_st<slot_key, bench_value<size_v>, capacity> map;
                 bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (st)");
             });
         });

@@ -515,6 +515,7 @@ namespace spore
         static constexpr void release_fence() {}
     };
 
+#if 0
     template <typename key_t, typename value_t, typename key_traits_t, typename map_traits_t, slot_map_opts opts_v>
     struct basic_slot_map
     {
@@ -790,16 +791,16 @@ namespace spore
             value_t& slot = block->slots[slot_index];
 
             const version_type version = key_traits_t::version(key);
-            const version_type expected_version = block->versions[slot_index];
+            version_type& current_version = block->versions[slot_index];
 
-            if (version != expected_version) [[unlikely]]
+            if (version != current_version) [[unlikely]]
             {
                 return false;
             }
 
             std::destroy_at(&slot);
 
-            ++block->versions[slot_index];
+            ++current_version;
 
             map_traits_t::release_fence();
 
@@ -870,6 +871,281 @@ namespace spore
             return *_blocks[index];
         }
     };
+#else
+    template <typename key_t, typename value_t, typename key_traits_t, typename map_traits_t, slot_map_opts opts_v>
+    struct basic_slot_map
+    {
+        static_assert(opts_v.block_num > 0);
+        static_assert(opts_v.slot_num > 0);
+        static_assert(opts_v.level_num > 0);
+
+        static consteval size_t capacity()
+        {
+            return opts_v.block_num * opts_v.slot_num;
+        }
+
+        using index_type = key_traits_t::index_type;
+        using version_type = key_traits_t::version_type;
+        using bits_type = map_traits_t::bits_type;
+        using bitset_type = detail::hierarchical_bitset<bits_type, capacity(), opts_v.level_num>;
+
+        template <bool const_v>
+        struct iterator_impl
+        {
+            using this_type = std::conditional_t<const_v, const basic_slot_map, basic_slot_map>;
+            using value_type = std::conditional_t<const_v, const value_t, value_t>;
+            using bit_iterator = bitset_type::set_view::iterator;
+
+            constexpr iterator_impl(this_type& self, const bit_iterator bit_it) noexcept
+                : _self(&self),
+                  _bit_it(bit_it)
+            {
+            }
+
+            constexpr bool operator==(const iterator_impl& other) const noexcept
+            {
+                return _bit_it == other._bit_it;
+            }
+
+            constexpr bool operator!=(const iterator_impl& other) const noexcept
+            {
+                return _bit_it != other._bit_it;
+            }
+
+            constexpr value_type& operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+            {
+                SPORE_SLOT_MAP_ASSERT(_self != nullptr);
+
+                const size_t index = *_bit_it;
+
+                map_traits_t::acquire_fence();
+
+                value_t& slot = _self->data->slots[index];
+
+                return slot;
+            }
+
+            constexpr value_type* operator->() const noexcept
+            {
+                return &operator*();
+            }
+
+            constexpr iterator_impl& operator++() noexcept
+            {
+                _bit_it.operator++();
+                return *this;
+            }
+
+            constexpr iterator_impl& operator++(int) noexcept
+            {
+                _bit_it.operator++(0);
+                return *this;
+            }
+
+            constexpr iterator_impl& operator+=(const size_t num) noexcept
+            {
+                _bit_it.operator++(num);
+                return *this;
+            }
+
+            constexpr iterator_impl operator+(const size_t num) const noexcept
+            {
+                iterator_impl copy = *this;
+
+                for (size_t index = 0; index < num; ++index)
+                {
+                    copy.operator++();
+                }
+
+                return copy;
+            }
+
+          private:
+            this_type* _self = nullptr;
+            bit_iterator _bit_it;
+        };
+
+        using key_type = key_t;
+        using mapped_type = value_t;
+        using iterator = iterator_impl<false>;
+        using const_iterator = iterator_impl<true>;
+
+        constexpr basic_slot_map()
+            : _data(std::make_unique<data>())
+        {
+        }
+
+        constexpr ~basic_slot_map() noexcept(std::is_nothrow_destructible_v<value_t>)
+        {
+            for (size_t index = 0; index < opts_v.slot_num * opts_v.block_num; ++index)
+            {
+                if (_data->bitset.is_set(index))
+                {
+                    value_t& slot = _data->slots[index];
+
+                    if constexpr (not std::is_trivially_destructible_v<value_t>)
+                    {
+                        std::destroy_at(&slot);
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] constexpr iterator begin() noexcept
+        {
+            return iterator { *this };
+        }
+
+        [[nodiscard]] constexpr iterator end() noexcept
+        {
+            return iterator { *this, nullptr };
+        }
+
+        [[nodiscard]] constexpr const_iterator begin() const noexcept
+        {
+            return const_iterator { *this };
+        }
+
+        [[nodiscard]] constexpr const_iterator end() const noexcept
+        {
+            return const_iterator { *this, nullptr };
+        }
+
+        template <typename... args_t>
+        [[nodiscard]] constexpr std::optional<key_t> try_emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...>)
+        {
+            const std::optional<size_t> maybe_index = _data->bitset.pop_unset();
+
+            if (not maybe_index.has_value()) [[unlikely]]
+            {
+                return std::nullopt;
+            }
+
+            const index_type index = maybe_index.value();
+            const version_type version = _data->versions[index];
+
+            value_t& slot = _data->slots[index];
+
+            std::construct_at(&slot, std::forward<args_t>(args)...);
+
+            map_traits_t::release_fence();
+
+            return key_traits_t::make_key(index, version);
+        }
+
+        template <typename... args_t>
+        [[nodiscard]] constexpr key_t emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...> and SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        {
+            const std::optional<key_t> key = try_emplace(std::forward<args_t>(args)...);
+            SPORE_SLOT_MAP_ASSERT(key.has_value());
+            return key.value();
+        }
+
+        [[nodiscard]] constexpr value_t* find(const key_t& key) noexcept
+        {
+            const index_type index = key_traits_t::index(key);
+
+            if (_data->control->bitset.is_unset(index)) [[unlikely]]
+            {
+                return nullptr;
+            }
+
+            map_traits_t::acquire_fence();
+
+            value_t& slot = _data->slots[index];
+
+            const version_type version = key_traits_t::version(key);
+            const version_type expected_version = _data->versions[index];
+
+            if (version != expected_version) [[unlikely]]
+            {
+                return nullptr;
+            }
+
+            return &slot;
+        }
+
+        [[nodiscard]] constexpr const value_t* find(const key_t& key) const noexcept
+        {
+            return const_cast<basic_slot_map&>(*this).find(key);
+        }
+
+        [[nodiscard]] constexpr value_t& at(const key_t& key) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        {
+            const index_type index = key_traits_t::index(key);
+
+            SPORE_SLOT_MAP_ASSERT(_data->bitset.is_set(index));
+
+            map_traits_t::acquire_fence();
+
+            value_t& slot = _data->slots[index];
+
+            SPORE_SLOT_MAP_ASSERT(key_traits_t::version(key) == _data->versions[index]);
+
+            return slot;
+        }
+
+        [[nodiscard]] constexpr const value_t& at(const key_t& key) const noexcept
+        {
+            return const_cast<basic_slot_map&>(*this).at(key);
+        }
+
+        constexpr bool erase(const key_t& key) noexcept(std::is_nothrow_destructible_v<value_t>)
+        {
+            const index_type index = key_traits_t::index(key);
+
+            if (_data->bitset.is_unset(index))
+            {
+                return false;
+            }
+
+            map_traits_t::acquire_fence();
+
+            value_t& slot = _data->slots[index];
+
+            const version_type version = key_traits_t::version(key);
+            const version_type expected_version = _data->versions[index];
+
+            if (version != expected_version) [[unlikely]]
+            {
+                return false;
+            }
+
+            if constexpr (not std::is_trivially_destructible_v<value_t>)
+            {
+                std::destroy_at(&slot);
+            }
+
+            ++_data->versions[index];
+
+            map_traits_t::release_fence();
+
+            _data->bitset.reset(index);
+
+            return true;
+        }
+
+        constexpr value_t& operator[](const key_t& key) noexcept
+        {
+            return at(key);
+        }
+
+        constexpr const value_t& operator[](const key_t& key) const noexcept
+        {
+            return at(key);
+        }
+
+      private:
+        struct data
+        {
+            bitset_type bitset;
+            value_t slots[opts_v.slot_num * opts_v.block_num];
+            version_type versions[opts_v.slot_num * opts_v.block_num] {};
+        };
+
+        std::unique_ptr<data> _data;
+    };
+#endif
 
     template <typename value_t, size_t capacity_v>
     [[nodiscard]] consteval slot_map_opts default_slot_map_opts()
