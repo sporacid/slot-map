@@ -15,14 +15,25 @@
 #include <random>
 #include <thread>
 
-constexpr size_t capacity = 1024;
+constexpr size_t unit_test_capacity = 1024;
+constexpr size_t concurrency_test_capacity = 1024 * 1024;
 
-struct slot_value
+struct slot_data
 {
     size_t value {};
 };
 
-TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<spore::slot_key, slot_value, capacity>), (spore::slot_map_mt<spore::slot_key, slot_value, capacity>) )
+using unit_test_list = std::tuple<
+    spore::slot_map_st<spore::slot_key, slot_data, unit_test_capacity>,
+    spore::slot_map_mt<spore::slot_key, slot_data, unit_test_capacity>,
+    spore::static_slot_map_st<spore::slot_key, slot_data, unit_test_capacity>,
+    spore::static_slot_map_mt<spore::slot_key, slot_data, unit_test_capacity>>;
+
+using concurrency_test_list = std::tuple<
+    spore::slot_map_mt<spore::slot_key, slot_data, concurrency_test_capacity>,
+    spore::static_slot_map_mt<spore::slot_key, slot_data, concurrency_test_capacity>>;
+
+TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 {
     using namespace spore;
 
@@ -44,7 +55,7 @@ TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<s
         constexpr size_t expected = 42;
 
         const slot_key key = map.emplace(expected);
-        const slot_value* value = map.find(key);
+        const slot_data* value = map.try_at(key);
 
         REQUIRE(value != nullptr);
         REQUIRE(value->value == expected);
@@ -58,7 +69,7 @@ TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<s
         const bool erased = map.erase(key);
 
         REQUIRE(erased);
-        REQUIRE(map.find(key) == nullptr);
+        REQUIRE(map.try_at(key) == nullptr);
     }
 
     SECTION("It should recycle slots correctly")
@@ -83,20 +94,65 @@ TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<s
     {
         slot_map_t map;
 
-        for (size_t index = 0; index < capacity; ++index)
+        for (size_t index = 0; index < unit_test_capacity; ++index)
         {
             const std::optional<slot_key> key = map.try_emplace();
 
             REQUIRE(key.has_value());
         }
     }
+
+    SECTION("It should iterate on all slots")
+    {
+        constexpr size_t num_emplace = 100;
+        constexpr size_t num_erase = 25;
+
+        slot_map_t map;
+
+        std::mt19937 rng { 0 };
+        std::uniform_int_distribution<uint32_t> rng_distribution { 0, num_emplace };
+
+        std::set<slot_key> erased_keys;
+        std::vector<slot_key> keys;
+        keys.reserve(num_emplace);
+
+        for (size_t index = 0; index < num_emplace; ++index)
+        {
+            keys.emplace_back(map.emplace(index));
+        }
+
+        for (size_t index = 0; index < num_emplace; ++index)
+        {
+            if (index < num_erase)
+            {
+                const size_t erase_index = rng_distribution(rng);
+                const auto [_, erased] = erased_keys.emplace(keys[erase_index]);
+
+                if (erased)
+                {
+                    map.erase(keys[erase_index]);
+                }
+            }
+        }
+
+        size_t count = 0;
+
+        for (const auto [key, value] : map)
+        {
+            REQUIRE(not erased_keys.contains(key));
+            ++count;
+        }
+
+        const size_t expected_size = keys.size() - erased_keys.size();
+        REQUIRE(count == expected_size);
+    }
 }
 
-TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
+TEMPLATE_LIST_TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]", concurrency_test_list)
 {
     using namespace spore;
 
-    using slot_map_t = slot_map_mt<slot_key, slot_value, 1'048'576>;
+    using slot_map_t = TestType;
 
     SECTION("It should stay consistent across multiple threads")
     {
