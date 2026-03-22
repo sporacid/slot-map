@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(SPORE_WITH_TESTS "Whether to build tests" ON)
+option(SPORE_WITH_BENCHMARKS "Whether to build benchmarks" ON)
 
 project(spore.slot-map)
 
@@ -15,4 +16,8 @@ add_library(spore::slot-map ALIAS ${PROJECT_NAME})
 if (SPORE_WITH_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif ()
+
+if (SPORE_WITH_BENCHMARKS)
+  add_subdirectory(benchmarks)
 endif ()
