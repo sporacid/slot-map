@@ -1,6 +1,5 @@
 #include "spore/slot_map.hpp"
 
-#include "bench.hpp"
 #include "plf/colony.hpp"
 
 #include <chrono>
@@ -20,14 +19,6 @@
 
 namespace spore::benchmarks
 {
-    template <typename map_t, typename key_t, typename value_t>
-    struct map_interface
-    {
-        key_t (&set)(map_t& map, value_t&&);
-        bool (&reset)(map_t& map, const key_t&);
-        value_t& (&get)(const map_t& map, const key_t&);
-    };
-
     using duration_t = std::chrono::steady_clock::duration;
 
     struct bench_result
@@ -68,12 +59,6 @@ namespace spore::benchmarks
 
         using plf::colony<value_t>::emplace;
 
-        // template <typename... args_t>
-        // iterator emplace(args_t&&... args)
-        // {
-        //     return colony.emplace(std::forward<args_t>(args)...);
-        // }
-
         SPORE_ALWAYS_INLINE value_t& at(const iterator& it) const
         {
             return *it;
@@ -110,11 +95,7 @@ namespace spore::benchmarks
     }
 
     template <typename key_t, typename value_t, typename map_t>
-    void bench(
-        map_t& map,
-        const bench_config& config,
-        std::vector<bench_result>& results,
-        const std::string_view name)
+    void bench(map_t& map, const bench_config& config, std::vector<bench_result>& results, const std::string_view name)
     {
         std::atomic<bool> start;
 
