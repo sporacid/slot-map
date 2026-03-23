@@ -67,11 +67,12 @@ namespace spore
         }
 
         template <bit_container value_t>
-        consteval size_t word_count(const size_t size, size_t depth)
+        consteval size_t word_count(const size_t size, const size_t depth, const size_t max_depth)
         {
             size_t count = size;
+            size_t current_depth = max_depth;
 
-            while (depth-- > 0)
+            while (current_depth-- > depth)
             {
                 count = word_count<value_t>(count);
             }
@@ -334,19 +335,19 @@ namespace spore
             using value_type = value_t;
             using word_type = value_t;
 
-            template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
-            {
-                if constexpr (target_depth_v == depth_v)
-                {
-                    return hierarchical_bits<value_t, size_v, depth_v>::size;
-                }
-                else
-                {
-                    static_assert(target_depth_v < depth_v);
-                    return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
-                }
-            }
+            // template <size_t target_depth_v, size_t size_v, size_t depth_v>
+            // [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
+            // {
+            //     if constexpr (target_depth_v == depth_v)
+            //     {
+            //         return hierarchical_bits<value_t, size_v, depth_v>::size;
+            //     }
+            //     else
+            //     {
+            //         static_assert(target_depth_v < depth_v);
+            //         return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
+            //     }
+            // }
 
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
             [[nodiscard]] static constexpr auto& get_words(hierarchical_bits<value_t, size_v, depth_v>& bits) noexcept
@@ -414,9 +415,10 @@ namespace spore
                     else
                     {
                         const auto& child_words = get_words<current_depth_v + 1>(bits);
-                        // constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1);
+                        constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
 
-                        if (child_index < std::size(child_words))
+                        if (child_index < child_size)
+                        // if (child_index < std::size(child_words))
                         {
                             if (const std::optional<size_t> result = pop_unset<current_depth_v + 1>(bits, child_index, child_index + 1))
                             {
@@ -490,19 +492,19 @@ namespace spore
             using value_type = std::atomic<value_t>;
             using word_type = value_t;
 
-            template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
-            {
-                if constexpr (target_depth_v == depth_v)
-                {
-                    return hierarchical_bits<value_t, size_v, depth_v>::size;
-                }
-                else
-                {
-                    static_assert(target_depth_v < depth_v);
-                    return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
-                }
-            }
+            // template <size_t target_depth_v, size_t size_v, size_t depth_v>
+            // [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
+            // {
+            //     if constexpr (target_depth_v == depth_v)
+            //     {
+            //         return hierarchical_bits<value_t, size_v, depth_v>::size;
+            //     }
+            //     else
+            //     {
+            //         static_assert(target_depth_v < depth_v);
+            //         return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
+            //     }
+            // }
 
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
             [[nodiscard]] static constexpr auto& get_words(hierarchical_bits<std::atomic<value_t>, size_v, depth_v>& bits) noexcept
@@ -572,9 +574,11 @@ namespace spore
                         }
                         else
                         {
-                            const auto& child_words = get_words<current_depth_v + 1>(bits);
+                            constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
+                            // const auto& child_words = get_words<current_depth_v + 1>(bits);
 
-                            if (child_index < std::size(child_words))
+                            if (child_index < child_size)
+                            // if (child_index < std::size(child_words))
                             {
                                 if (const std::optional<size_t> result = pop_unset<current_depth_v + 1>(bits, child_index, child_index + 1))
                                 {
@@ -803,7 +807,7 @@ namespace spore
 
             [[nodiscard]] constexpr std::optional<size_t> pop_unset() noexcept
             {
-                constexpr size_t root_size = word_count<word_type>(size_v, max_depth_v);
+                constexpr size_t root_size = word_count<word_type>(size_v, 0, max_depth_v);
                 return traits_type::template pop_unset<0>(bits, 0, root_size);
             }
         };
