@@ -80,6 +80,21 @@ namespace spore
             return new_size;
         }
 
+        template <typename value_t, size_t size_v, size_t root_size_v = SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>
+        consteval size_t optimal_depth()
+        {
+            size_t depth = 0;
+            size_t size = size_v;
+
+            while (size > root_size_v)
+            {
+                size = reduce_word_count_once<value_t>(size);
+                ++depth;
+            }
+
+            return depth;
+        }
+
         template <bit_container value_t, size_t size_v, size_t depth_v>
         struct hierarchical_bits
         {
@@ -1031,28 +1046,13 @@ namespace spore
         std::unique_ptr<data> _data;
     };
 
-    template <typename value_t, size_t size_v, size_t root_size_v = SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>
-    consteval size_t optimal_bit_depth()
-    {
-        size_t depth = 0;
-        size_t size = size_v;
-
-        while (size > root_size_v)
-        {
-            size = detail::reduce_word_count_once<value_t>(size);
-            ++depth;
-        }
-
-        return depth;
-    }
-
     template <typename key_t, typename value_t, size_t size_v>
     using slot_map_st = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, false>,
-        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v>()>,
+        detail::hierarchical_bitset<size_t, size_v, detail::optimal_depth<size_t, size_v>()>,
         false>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1061,7 +1061,7 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, true>,
-        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v>()>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, detail::optimal_depth<size_t, size_v>()>,
         true>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1070,7 +1070,7 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
-        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v>()>,
+        detail::hierarchical_bitset<size_t, size_v, detail::optimal_depth<size_t, size_v>()>,
         false>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1079,6 +1079,6 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
-        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v>()>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, detail::optimal_depth<size_t, size_v>()>,
         true>;
 }
