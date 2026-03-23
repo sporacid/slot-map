@@ -57,73 +57,42 @@ namespace spore
         template <bit_container value_t>
         consteval size_t bit_count()
         {
-            return 8 * sizeof(value_t);
+            constexpr size_t bits_per_byte = 8;
+            return sizeof(value_t) * bits_per_byte;
         }
 
         template <bit_container value_t>
-        consteval size_t word_count(const size_t size)
+        consteval size_t reduce_word_count_once(const size_t size)
         {
             return (size + bit_count<value_t>() - 1) / bit_count<value_t>();
         }
 
         template <bit_container value_t>
-        consteval size_t word_count(const size_t size, const size_t depth, const size_t max_depth)
+        consteval size_t reduce_word_count_n(const size_t size, const size_t n)
         {
-            size_t count = size;
-            size_t current_depth = max_depth;
+            size_t new_size = size;
 
-            while (current_depth-- > depth)
+            for (size_t index = 0; index < n; ++index)
             {
-                count = word_count<value_t>(count);
+                new_size = reduce_word_count_once<value_t>(new_size);
             }
 
-            return count;
+            return new_size;
         }
-
-        // template <bit_container value_t, size_t size_v, size_t depth_v, size_t current_depth_v = 0>
-        // consteval size_t word_count_at()
-        // {
-        //     if constexpr (current_depth_v == depth_v)
-        //     {
-        //         return word_count<value_t, size_v>();
-        //     }
-        //     else
-        //     {
-        //         static_assert(current_depth_v < depth_v);
-        //         constexpr size_t child_size = size_v * bit_count<value_t>();
-        //         return word_count_at<value_t, child_size, depth_v, current_depth_v + 1>();
-        //     }
-        // }
-
-        // template <bit_container value_t, size_t size_v, size_t depth_v>
-        // consteval size_t word_count_at()
-        // {
-        //     size_t size = word_count<value_t, size_v>();
-        //     size_t depth = depth_v;
-        //
-        //     while (depth-- > 0)
-        //     {
-        //         size = size / bit_count<value_t>();
-        //     }
-        //
-        //     return size;
-        // }
 
         template <bit_container value_t, size_t size_v, size_t depth_v>
         struct hierarchical_bits
         {
-            static constexpr size_t parent_size = word_count<value_t>(size_v);
-            static constexpr size_t size = size_v;
-
-            hierarchical_bits<value_t, parent_size, depth_v - 1> parent;
-            value_t words[size] {};
+            static constexpr size_t num_words = reduce_word_count_once<value_t>(size_v);
+            hierarchical_bits<value_t, num_words, depth_v - 1> parent;
+            value_t words[num_words] {};
         };
 
         template <bit_container value_t, size_t size_v>
         struct hierarchical_bits<value_t, size_v, 0>
         {
-            static constexpr size_t size = size_v;
-            value_t words[size] {};
+            static constexpr size_t num_words = reduce_word_count_once<value_t>(size_v);
+            value_t words[num_words] {};
         };
 
 #if 0
@@ -335,20 +304,6 @@ namespace spore
             using value_type = value_t;
             using word_type = value_t;
 
-            // template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            // [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
-            // {
-            //     if constexpr (target_depth_v == depth_v)
-            //     {
-            //         return hierarchical_bits<value_t, size_v, depth_v>::size;
-            //     }
-            //     else
-            //     {
-            //         static_assert(target_depth_v < depth_v);
-            //         return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
-            //     }
-            // }
-
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
             [[nodiscard]] static constexpr auto& get_words(hierarchical_bits<value_t, size_v, depth_v>& bits) noexcept
             {
@@ -414,8 +369,7 @@ namespace spore
                     }
                     else
                     {
-                        const auto& child_words = get_words<current_depth_v + 1>(bits);
-                        constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
+                        constexpr size_t child_size = reduce_word_count_n<word_type>(size_v, depth_v - current_depth_v - 1);
 
                         if (child_index < child_size)
                         // if (child_index < std::size(child_words))
@@ -492,20 +446,6 @@ namespace spore
             using value_type = std::atomic<value_t>;
             using word_type = value_t;
 
-            // template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            // [[nodiscard]] static consteval size_t get_word_count(std::type_identity_t<hierarchical_bits<value_t, size_v, depth_v>>) noexcept
-            // {
-            //     if constexpr (target_depth_v == depth_v)
-            //     {
-            //         return hierarchical_bits<value_t, size_v, depth_v>::size;
-            //     }
-            //     else
-            //     {
-            //         static_assert(target_depth_v < depth_v);
-            //         return get_word_count<target_depth_v>(std::type_identity_t<std::decay_t<decltype(hierarchical_bits<value_t, size_v, depth_v>::parent)>> {});
-            //     }
-            // }
-
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
             [[nodiscard]] static constexpr auto& get_words(hierarchical_bits<std::atomic<value_t>, size_v, depth_v>& bits) noexcept
             {
@@ -574,7 +514,8 @@ namespace spore
                         }
                         else
                         {
-                            constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
+                            constexpr size_t child_size = reduce_word_count_n<word_type>(size_v, depth_v - current_depth_v - 1);
+                            // constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
                             // const auto& child_words = get_words<current_depth_v + 1>(bits);
 
                             if (child_index < child_size)
@@ -659,15 +600,10 @@ namespace spore
         template <bit_container value_t, size_t size_v, size_t max_depth_v>
         struct hierarchical_bitset
         {
-            [[nodiscard]] static consteval size_t capacity()
-            {
-                return word_count<value_t>(size_v);
-            }
-
             using traits_type = hierarchical_bits_traits<value_t>;
             using word_type = traits_type::word_type;
 
-            hierarchical_bits<value_t, capacity(), max_depth_v - 1> bits;
+            hierarchical_bits<value_t, size_v, max_depth_v - 1> bits;
 
             template <bool set_v>
             struct iterator_impl
@@ -685,7 +621,7 @@ namespace spore
 
                 constexpr explicit iterator_impl(const hierarchical_bitset& self, std::nullptr_t) noexcept
                     : _self(&self),
-                      _word_index(capacity())
+                      _word_index(reduce_word_count_once<value_t>(size_v))
                 {
                 }
 
@@ -744,7 +680,7 @@ namespace spore
 
                 constexpr void next_word() noexcept
                 {
-                    while (++_word_index < capacity())
+                    while (++_word_index < reduce_word_count_once<value_t>(size_v))
                     {
                         load_word();
 
@@ -807,7 +743,7 @@ namespace spore
 
             [[nodiscard]] constexpr std::optional<size_t> pop_unset() noexcept
             {
-                constexpr size_t root_size = word_count<word_type>(size_v, 0, max_depth_v);
+                constexpr size_t root_size = reduce_word_count_n<word_type>(size_v, max_depth_v - 1);
                 return traits_type::template pop_unset<0>(bits, 0, root_size);
             }
         };
@@ -1304,7 +1240,7 @@ namespace spore
         std::unique_ptr<data> _data;
     };
 
-    template <typename value_t, size_t size_v, size_t root_size_v>
+    template <typename value_t, size_t size_v, size_t root_size_v = SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>
     consteval size_t optimal_bit_depth()
     {
         size_t depth = 0;
@@ -1312,7 +1248,7 @@ namespace spore
 
         while (size > root_size_v)
         {
-            size = detail::word_count<value_t>(size);
+            size = detail::reduce_word_count_once<value_t>(size);
             ++depth;
         }
 
@@ -1325,7 +1261,7 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, false>,
-        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
+        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v>()>,
         false>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1334,7 +1270,7 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, true>,
-        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v>()>,
         true>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1343,7 +1279,7 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
-        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
+        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v>()>,
         false>;
 
     template <typename key_t, typename value_t, size_t size_v>
@@ -1352,6 +1288,6 @@ namespace spore
         value_t,
         slot_key_traits<key_t>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
-        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v>()>,
         true>;
 }
