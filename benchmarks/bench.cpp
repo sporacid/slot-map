@@ -343,11 +343,19 @@ int main()
         std::vector<bench_result> results;
         results.reserve(128);
 
-        // slot_map
+        // slot map static
+        for_each_size(size_sequence, [&]<size_t size_v> {
+            std::ranges::for_each(configs, [&](const bench_config& config) {
+                static_slot_map_mt<slot_key, bench_value<size_v>, 1'048'576> map;
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static mt)");
+            });
+        });
+
+        // slot map dynamic
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 slot_map_mt<slot_key, bench_value<size_v>, 1'048'576> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (mt)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic mt)");
             });
         });
 
@@ -363,6 +371,8 @@ int main()
         sort_results(results);
         print_results(results);
     }
+
+    std::cin.get();
 
     return 0;
 }

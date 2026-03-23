@@ -587,16 +587,19 @@ namespace spore
 
             [[nodiscard]] constexpr bool is_set(const size_t index) const noexcept
             {
+                SPORE_SLOT_MAP_ASSERT(index < size_v);
                 return traits_type::is_set(bits, index);
             }
 
             [[nodiscard]] constexpr bool is_unset(const size_t index) const noexcept
             {
+                SPORE_SLOT_MAP_ASSERT(index < size_v);
                 return not traits_type::is_set(bits, index);
             }
 
             constexpr void reset(const size_t index) noexcept
             {
+                SPORE_SLOT_MAP_ASSERT(index < size_v);
                 traits_type::template reset<max_depth_v - 1>(bits, index);
             }
 
@@ -1766,7 +1769,7 @@ namespace spore
         slot_key_traits<key_t>,
         slot_map_traits<thread_unsafe>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, no_mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>,
-        detail::hierarchical_bitset<size_t, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<size_t, slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, no_mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using slot_map_mt = basic_slot_map<
@@ -1775,7 +1778,7 @@ namespace spore
         slot_key_traits<key_t>,
         slot_map_traits<thread_safe>,
         slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, std::mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>,
-        detail::hierarchical_bitset<std::atomic<size_t>, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<std::atomic<size_t>, slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, std::mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using static_slot_map_st = basic_slot_map<
@@ -1784,7 +1787,7 @@ namespace spore
         slot_key_traits<key_t>,
         slot_map_traits<thread_unsafe>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<size_t, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<size_t, slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using static_slot_map_mt = basic_slot_map<
@@ -1793,6 +1796,6 @@ namespace spore
         slot_key_traits<key_t>,
         slot_map_traits<thread_safe>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<std::atomic<size_t>, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<std::atomic<size_t>, slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
 #endif
 }
