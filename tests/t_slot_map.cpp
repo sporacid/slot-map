@@ -55,7 +55,7 @@ TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
         constexpr size_t expected = 42;
 
         const slot_key key = map.emplace(expected);
-        const slot_value* value = map.find(key);
+        const slot_value* value = map.try_at(key);
 
         REQUIRE(value != nullptr);
         REQUIRE(value->value == expected);
@@ -69,7 +69,7 @@ TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
         const bool erased = map.erase(key);
 
         REQUIRE(erased);
-        REQUIRE(map.find(key) == nullptr);
+        REQUIRE(map.try_at(key) == nullptr);
     }
 
     SECTION("It should recycle slots correctly")

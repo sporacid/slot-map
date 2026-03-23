@@ -28,7 +28,7 @@
 #endif
 
 #ifndef SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM
-#    define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 1
+#    define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
 #endif
 
 namespace spore
@@ -59,26 +59,26 @@ namespace spore
             return 8 * sizeof(value_t);
         }
 
-        template <bit_container value_t, size_t size_v>
-        consteval size_t word_count()
+        template <bit_container value_t>
+        consteval size_t word_count(const size_t size)
         {
-            return (size_v + bit_count<value_t>() - 1) / bit_count<value_t>();
+            return (size + bit_count<value_t>() - 1) / bit_count<value_t>();
         }
 
-        template <bit_container value_t, size_t size_v, size_t depth_v, size_t current_depth_v = 0>
-        consteval size_t word_count_at()
-        {
-            if constexpr (current_depth_v == depth_v)
-            {
-                return word_count<value_t, size_v>();
-            }
-            else
-            {
-                static_assert(current_depth_v < depth_v);
-                constexpr size_t child_size = size_v * bit_count<value_t>();
-                return word_count_at<value_t, child_size, depth_v, current_depth_v + 1>();
-            }
-        }
+        // template <bit_container value_t, size_t size_v, size_t depth_v, size_t current_depth_v = 0>
+        // consteval size_t word_count_at()
+        // {
+        //     if constexpr (current_depth_v == depth_v)
+        //     {
+        //         return word_count<value_t, size_v>();
+        //     }
+        //     else
+        //     {
+        //         static_assert(current_depth_v < depth_v);
+        //         constexpr size_t child_size = size_v * bit_count<value_t>();
+        //         return word_count_at<value_t, child_size, depth_v, current_depth_v + 1>();
+        //     }
+        // }
 
         // template <bit_container value_t, size_t size_v, size_t depth_v>
         // consteval size_t word_count_at()
@@ -97,7 +97,7 @@ namespace spore
         template <bit_container value_t, size_t size_v, size_t depth_v>
         struct hierarchical_bits
         {
-            static constexpr size_t parent_size = word_count<value_t, size_v>();
+            static constexpr size_t parent_size = word_count<value_t>(size_v);
             static constexpr size_t size = size_v;
 
             hierarchical_bits<value_t, parent_size, depth_v - 1> parent;
@@ -456,7 +456,7 @@ namespace spore
         {
             [[nodiscard]] static consteval size_t capacity()
             {
-                return word_count<value_t, size_v>();
+                return word_count<value_t>(size_v);
             }
 
             using accessor_type = word_accessor<value_t>;
@@ -585,19 +585,19 @@ namespace spore
                 return unset_view { *this };
             }
 
-            [[nodiscard]] constexpr bool is_set(const size_t index) const noexcept
+            [[nodiscard]] constexpr bool is_set(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(index < size_v);
                 return traits_type::is_set(bits, index);
             }
 
-            [[nodiscard]] constexpr bool is_unset(const size_t index) const noexcept
+            [[nodiscard]] constexpr bool is_unset(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(index < size_v);
                 return not traits_type::is_set(bits, index);
             }
 
-            constexpr void reset(const size_t index) noexcept
+            constexpr void reset(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(index < size_v);
                 traits_type::template reset<max_depth_v - 1>(bits, index);
@@ -693,7 +693,21 @@ namespace spore
     {
         static_assert(size_v > 0);
 
-        constexpr std::tuple<value_t*, version_t*> find(const size_t index) noexcept
+        constexpr std::tuple<value_t&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        {
+            SPORE_SLOT_MAP_ASSERT(index < size_v);
+
+            return std::tie(slots[index], versions[index]);
+        }
+
+        constexpr std::tuple<const value_t&, const version_t&> at(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        {
+            SPORE_SLOT_MAP_ASSERT(index < size_v);
+
+            return std::tie(slots[index], versions[index]);
+        }
+
+        constexpr std::tuple<value_t*, version_t*> try_at(const size_t index) noexcept
         {
             if (index < size_v) [[likely]]
             {
@@ -703,7 +717,7 @@ namespace spore
             return std::tuple { nullptr, nullptr };
         }
 
-        constexpr std::tuple<const value_t*, const version_t*> find(const size_t index) const noexcept
+        constexpr std::tuple<const value_t*, const version_t*> try_at(const size_t index) const noexcept
         {
             if (index < size_v) [[likely]]
             {
@@ -713,21 +727,7 @@ namespace spore
             return std::tuple { nullptr, nullptr };
         }
 
-        std::tuple<value_t&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
-        {
-            SPORE_SLOT_MAP_ASSERT(index < size_v);
-
-            return std::tie(slots[index], versions[index]);
-        }
-
-        std::tuple<const value_t&, const version_t&> at(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
-        {
-            SPORE_SLOT_MAP_ASSERT(index < size_v);
-
-            return std::tie(slots[index], versions[index]);
-        }
-
-        static consteval size_t capacity()
+        static consteval size_t size()
         {
             return size_v;
         }
@@ -737,6 +737,100 @@ namespace spore
         version_t versions[size_v] {};
     };
 
+    template <typename value_t, typename version_t, size_t size_v, bool concurrent_v>
+    struct slot_storage_dynamic
+    {
+        static_assert(size_v > 0);
+
+        static constexpr size_t num_slot = std::max<size_t>(SPORE_SLOT_MAP_MIN_PAGE_SIZE / sizeof(value_t), SPORE_SLOT_MAP_MIN_SLOT_NUM);
+        static constexpr size_t num_block = size_v / num_slot;
+
+        constexpr std::tuple<value_t&, version_t&> at(const size_t index) noexcept
+        {
+            const size_t block_index = index / num_slot;
+            const size_t slot_index = index % num_slot;
+
+            block& block = get_block(block_index);
+
+            return std::tie(block.slots[slot_index], block.versions[slot_index]);
+        }
+
+        constexpr std::tuple<value_t*, version_t*> try_at(const size_t index) const noexcept
+        {
+            const size_t block_index = index / num_slot;
+            const size_t slot_index = index % num_slot;
+
+            if (block* block = try_get_block(block_index))
+            {
+                return std::tuple { &block->slots[slot_index], &block->versions[slot_index] };
+            }
+
+            return std::tuple { nullptr, nullptr };
+        }
+
+        static consteval size_t size()
+        {
+            return size_v;
+        }
+
+      private:
+        using mutex_t = std::conditional_t<concurrent_v, std::mutex, no_mutex>;
+
+        struct block
+        {
+            value_t slots[num_slot];
+            version_t versions[num_slot] {};
+        };
+
+        mutable mutex_t _mutex;
+        std::unique_ptr<block> _blocks[num_block] {};
+
+        [[nodiscard]] constexpr block& get_block(const size_t index) noexcept
+        {
+            if (_blocks[index] == nullptr) [[unlikely]]
+            {
+                if constexpr (concurrent_v)
+                {
+                    std::unique_lock lock { _mutex };
+
+                    if (_blocks[index] == nullptr)
+                    {
+                        _blocks[index] = std::make_unique<block>();
+                    }
+                }
+                else
+                {
+                    _blocks[index] = std::make_unique<block>();
+                }
+            }
+
+            return *_blocks[index];
+        }
+
+        [[nodiscard]] constexpr block* try_get_block(const size_t index) const noexcept
+        {
+            if (_blocks[index] == nullptr) [[unlikely]]
+            {
+                if constexpr (concurrent_v)
+                {
+                    std::unique_lock lock { _mutex };
+
+                    if (_blocks[index] == nullptr)
+                    {
+                        return nullptr;
+                    }
+                }
+                else
+                {
+                    return nullptr;
+                }
+            }
+
+            return _blocks[index].get();
+        }
+    };
+
+#if 0
     template <typename value_t, typename version_t, size_t block_v, size_t slot_v, bool concurrent_v>
     struct slot_storage_dynamic
     {
@@ -827,7 +921,7 @@ namespace spore
             return *_blocks[index];
         }
     };
-
+#endif
 #if 0
     template <typename key_t, typename value_t, typename key_traits_t, typename map_traits_t, slot_map_opts opts_v>
     struct basic_slot_map
@@ -1568,7 +1662,7 @@ namespace spore
 
         constexpr ~basic_slot_map() noexcept(std::is_nothrow_destructible_v<value_t>)
         {
-            for (size_t index = 0; index < storage_t::capacity(); ++index)
+            for (size_t index = 0; index < storage_t::size(); ++index)
             {
                 if (_data->bitset.is_set(index))
                 {
@@ -1630,7 +1724,7 @@ namespace spore
             return key.value();
         }
 
-        [[nodiscard]] constexpr value_t* find(const key_t& key) noexcept
+        [[nodiscard]] constexpr value_t* try_at(const key_t& key) noexcept
         {
             const index_type index = key_traits_t::index(key);
 
@@ -1639,7 +1733,7 @@ namespace spore
                 return nullptr;
             }
 
-            auto [slot, slot_version] = _data->storage.find(index);
+            auto [slot, slot_version] = _data->storage.try_at(index);
 
             if (slot == nullptr)
             {
@@ -1661,9 +1755,9 @@ namespace spore
             return slot;
         }
 
-        [[nodiscard]] constexpr const value_t* find(const key_t& key) const noexcept
+        [[nodiscard]] constexpr const value_t* try_at(const key_t& key) const noexcept
         {
-            return const_cast<basic_slot_map&>(*this).find(key);
+            return const_cast<basic_slot_map&>(*this).try_at(key);
         }
 
         [[nodiscard]] constexpr value_t& at(const key_t& key) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
@@ -1789,6 +1883,31 @@ namespace spore
         return slot_map_opts { block_num, slot_num, level_num };
     }
 
+    template <typename value_t, size_t size_v, size_t root_size_v>
+    consteval size_t optimal_bit_depth()
+    {
+        size_t depth = 0;
+        size_t size = size_v;
+
+        while (size > root_size_v)
+        {
+            size = detail::word_count<value_t>(size);
+            ++depth;
+        }
+
+        return depth;
+
+        // size_t level_num = 1;
+        // size_t word_num = capacity_v / detail::bit_count<size_t>();
+        //
+        // while (word_num > max_root_word_num)
+        // {
+        //     ++level_num;
+        //     word_num = word_num / detail::bit_count<size_t>();
+        // }
+        //
+        // return slot_map_opts { block_num, slot_num, level_num };
+    }
 #if 0
     template <typename key_t, typename value_t, size_t capacity_v>
     using slot_map_st = basic_slot_map<key_t, value_t, slot_key_traits<key_t>, slot_map_traits<thread_unsafe>, default_slot_map_opts<value_t, capacity_v>()>;
@@ -1796,40 +1915,40 @@ namespace spore
     template <typename key_t, typename value_t, size_t capacity_v>
     using slot_map_mt = basic_slot_map<key_t, value_t, slot_key_traits<key_t>, slot_map_traits<thread_safe>, default_slot_map_opts<value_t, capacity_v>()>;
 #else
-    template <typename key_t, typename value_t, size_t capacity_v>
+    template <typename key_t, typename value_t, size_t size_v>
     using slot_map_st = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num, false>,
-        detail::hierarchical_bitset<size_t, default_slot_map_opts<value_t, capacity_v>().block_num * default_slot_map_opts<value_t, capacity_v>().slot_num, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, false>,
+        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
         false>;
 
-    template <typename key_t, typename value_t, size_t capacity_v>
+    template <typename key_t, typename value_t, size_t size_v>
     using slot_map_mt = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num, true>,
-        detail::hierarchical_bitset<std::atomic<size_t>, default_slot_map_opts<value_t, capacity_v>().block_num * default_slot_map_opts<value_t, capacity_v>().slot_num, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, size_v, true>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
         true>;
 
-    template <typename key_t, typename value_t, size_t capacity_v>
+    template <typename key_t, typename value_t, size_t size_v>
     using static_slot_map_st = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<size_t, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
+        detail::hierarchical_bitset<size_t, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
         false>;
 
-    template <typename key_t, typename value_t, size_t capacity_v>
+    template <typename key_t, typename value_t, size_t size_v>
     using static_slot_map_mt = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<std::atomic<size_t>, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, size_v>,
+        detail::hierarchical_bitset<std::atomic<size_t>, size_v, optimal_bit_depth<size_t, size_v, SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM>()>,
         true>;
 #endif
 }
