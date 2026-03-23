@@ -95,209 +95,6 @@ namespace spore
             value_t words[num_words] {};
         };
 
-#if 0
-        template <bit_container value_t>
-        struct word_accessor
-        {
-            using word_type = value_t;
-
-            [[nodiscard]] static constexpr value_t load(const value_t word, const std::memory_order) noexcept
-            {
-                return word;
-            }
-
-            static constexpr void fetch_and(value_t& word, const value_t mask, const std::memory_order) noexcept
-            {
-                word &= mask;
-            }
-
-            static constexpr void fetch_or(value_t& word, const value_t mask, const std::memory_order) noexcept
-            {
-                word |= mask;
-            }
-
-            static constexpr bool compare_exchange(value_t& word, value_t&, const value_t desired, const std::memory_order, const std::memory_order) noexcept
-            {
-                word = desired;
-                return true;
-            }
-        };
-
-        template <bit_container value_t>
-        struct word_accessor<std::atomic<value_t>>
-        {
-            using word_type = value_t;
-
-            [[nodiscard]] static value_t load(const std::atomic<value_t>& word, const std::memory_order memory_order) noexcept
-            {
-                return word.load(memory_order);
-            }
-
-            static void fetch_and(std::atomic<value_t>& word, const value_t mask, const std::memory_order memory_order) noexcept
-            {
-                std::ignore = word.fetch_and(mask, memory_order);
-            }
-
-            static void fetch_or(std::atomic<value_t>& word, const value_t mask, const std::memory_order memory_order) noexcept
-            {
-                std::ignore = word.fetch_or(mask, memory_order);
-            }
-
-            static bool compare_exchange(std::atomic<value_t>& word, value_t& expected, const value_t desired, const std::memory_order memory_order_success, const std::memory_order memory_order_failure) noexcept
-            {
-                return word.compare_exchange_strong(expected, desired, memory_order_success, memory_order_failure);
-            }
-        };
-
-        template <bit_container value_t>
-        struct hierarchical_bits_traits
-        {
-            using value_type = std::atomic<value_t>;
-            using accessor_type = word_accessor<value_t>;
-            using word_type = accessor_type::word_type;
-
-            template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr auto& get_words(hierarchical_bits<value_t, size_v, depth_v>& bits) noexcept
-            {
-                if constexpr (target_depth_v == depth_v)
-                {
-                    return bits.words;
-                }
-                else
-                {
-                    static_assert(target_depth_v < depth_v);
-                    return get_words<target_depth_v>(bits.parent);
-                }
-            }
-
-            template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr const auto& get_words(const hierarchical_bits<value_t, size_v, depth_v>& bits) noexcept
-            {
-                if constexpr (target_depth_v == depth_v)
-                {
-                    return bits.words;
-                }
-                else
-                {
-                    static_assert(target_depth_v < depth_v);
-                    return get_words<target_depth_v>(bits.parent);
-                }
-            }
-
-            template <size_t current_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr std::optional<size_t> pop_unset(hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index_start, const size_t index_end) noexcept
-            {
-                auto& words = get_words<current_depth_v>(bits);
-
-                for (size_t index = index_start; index < index_end; ++index)
-                {
-                    word_type word = accessor_type::load(words[index], std::memory_order_relaxed);
-
-                    while (true)
-                    {
-                        const size_t bit_index = static_cast<size_t>(std::countr_one(word));
-
-                        if (bit_index == bit_count<word_type>())
-                        {
-                            break;
-                        }
-
-                        const size_t child_index = index * bit_count<word_type>() + bit_index;
-
-                        if constexpr (current_depth_v == depth_v)
-                        {
-                            const word_type new_word = word | (static_cast<word_type>(1) << bit_index);
-
-                            if (accessor_type::compare_exchange(words[index], word, new_word, std::memory_order_release, std::memory_order_relaxed))
-                            {
-                                pop_unset_propagate<depth_v>(bits, index, new_word);
-
-                                return child_index;
-                            }
-                        }
-                        else
-                        {
-                            const auto& child_words = get_words<current_depth_v + 1>(bits);
-
-                            if (child_index >= std::size(child_words))
-                            {
-                                break;
-                            }
-
-                            if (const std::optional<size_t> result = pop_unset<current_depth_v + 1>(bits, child_index, child_index + 1))
-                            {
-                                return result;
-                            }
-
-                            const word_type new_word = word | (static_cast<word_type>(1) << bit_index);
-
-                            accessor_type::compare_exchange(words[index], word, new_word, std::memory_order_relaxed, std::memory_order_relaxed);
-                        }
-                    }
-                }
-
-                return std::nullopt;
-            }
-
-            template <size_t current_depth_v, size_t size_v, size_t depth_v>
-            static constexpr void pop_unset_propagate(hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t word_index, const word_type word_value) noexcept
-            {
-                if (word_value != std::numeric_limits<word_type>::max())
-                {
-                    return;
-                }
-
-                if constexpr (current_depth_v > 0)
-                {
-                    const size_t parent_word_index = word_index / bit_count<word_type>();
-                    const size_t parent_bit_index = word_index % bit_count<word_type>();
-
-                    auto& parent_words = get_words<current_depth_v - 1>(bits);
-
-                    word_type parent_word = accessor_type::load(parent_words[parent_word_index], std::memory_order_relaxed);
-                    const word_type new_parent_word = parent_word | (static_cast<word_type>(1) << parent_bit_index);
-
-                    std::ignore = accessor_type::compare_exchange(parent_words[parent_word_index], parent_word, new_parent_word, std::memory_order_relaxed, std::memory_order_relaxed);
-
-                    pop_unset_propagate<current_depth_v - 1>(bits, parent_word_index, new_parent_word);
-                }
-            }
-
-            template <size_t current_depth_v, size_t size_v, size_t depth_v>
-            static constexpr void reset(hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index) noexcept
-            {
-                auto& words = get_words<current_depth_v>(bits);
-
-                const size_t word_index = index / bit_count<word_type>();
-                const size_t bit_index = index % bit_count<word_type>();
-
-                const word_type bit_mask = ~(static_cast<word_type>(1) << bit_index);
-
-                constexpr std::memory_order memory_order = current_depth_v == depth_v ? std::memory_order_release : std::memory_order_relaxed;
-
-                accessor_type::fetch_and(words[word_index], bit_mask, memory_order);
-
-                if constexpr (current_depth_v > 0)
-                {
-                    reset<current_depth_v - 1>(bits, word_index);
-                }
-            }
-
-            template <size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr bool is_set(const hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index) noexcept
-            {
-                const size_t word_index = index / bit_count<word_type>();
-                const size_t bit_index = index % bit_count<word_type>();
-
-                const auto& words = get_words<depth_v>(bits);
-
-                const word_type word = accessor_type::load(words[word_index], std::memory_order_acquire);
-
-                return (word >> bit_index) & static_cast<word_type>(1);
-            }
-        };
-
-#else
         template <bit_container value_t>
         struct hierarchical_bits_traits
         {
@@ -372,7 +169,6 @@ namespace spore
                         constexpr size_t child_size = reduce_word_count_n<word_type>(size_v, depth_v - current_depth_v - 1);
 
                         if (child_index < child_size)
-                        // if (child_index < std::size(child_words))
                         {
                             if (const std::optional<size_t> result = pop_unset<current_depth_v + 1>(bits, child_index, child_index + 1))
                             {
@@ -515,11 +311,8 @@ namespace spore
                         else
                         {
                             constexpr size_t child_size = reduce_word_count_n<word_type>(size_v, depth_v - current_depth_v - 1);
-                            // constexpr size_t child_size = word_count<word_type>(size_v, current_depth_v + 1, depth_v);
-                            // const auto& child_words = get_words<current_depth_v + 1>(bits);
 
                             if (child_index < child_size)
-                            // if (child_index < std::size(child_words))
                             {
                                 if (const std::optional<size_t> result = pop_unset<current_depth_v + 1>(bits, child_index, child_index + 1))
                                 {
@@ -594,8 +387,6 @@ namespace spore
                 return (word >> bit_index) & static_cast<word_type>(1);
             }
         };
-
-#endif
 
         template <bit_container value_t, size_t size_v, size_t max_depth_v>
         struct hierarchical_bitset
