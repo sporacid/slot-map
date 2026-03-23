@@ -15,8 +15,7 @@
 #include <random>
 #include <thread>
 
-constexpr size_t capacity = 1024;
-constexpr size_t concurrency_capacity = 1024 * 1024;
+static constexpr size_t capacity = 1024;
 
 struct slot_value
 {
@@ -30,8 +29,8 @@ using unit_test_list = std::tuple<
     spore::static_slot_map_mt<spore::slot_key, slot_value, capacity>>;
 
 using concurrency_test_list = std::tuple<
-    spore::slot_map_mt<spore::slot_key, slot_value, concurrency_capacity>,
-    spore::static_slot_map_mt<spore::slot_key, slot_value, concurrency_capacity>>;
+    spore::slot_map_mt<spore::slot_key, slot_value, 1024 * 1024>,
+    spore::static_slot_map_mt<spore::slot_key, slot_value, 1024 * 1024>>;
 
 TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 {
