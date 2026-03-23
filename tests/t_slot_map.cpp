@@ -16,13 +16,24 @@
 #include <thread>
 
 constexpr size_t capacity = 1024;
+constexpr size_t concurrency_capacity = 1024 * 1024;
 
 struct slot_value
 {
     size_t value {};
 };
 
-TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<spore::slot_key, slot_value, capacity>), (spore::slot_map_mt<spore::slot_key, slot_value, capacity>) )
+using unit_test_list = std::tuple<
+    spore::slot_map_st<spore::slot_key, slot_value, capacity>,
+    spore::slot_map_mt<spore::slot_key, slot_value, capacity>,
+    spore::static_slot_map_st<spore::slot_key, slot_value, capacity>,
+    spore::static_slot_map_mt<spore::slot_key, slot_value, capacity>>;
+
+using concurrency_test_list = std::tuple<
+    spore::slot_map_mt<spore::slot_key, slot_value, concurrency_capacity>,
+    spore::static_slot_map_mt<spore::slot_key, slot_value, concurrency_capacity>>;
+
+TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 {
     using namespace spore;
 
@@ -92,11 +103,11 @@ TEMPLATE_TEST_CASE("spore::slot-map", "[spore::slot-map]", (spore::slot_map_st<s
     }
 }
 
-TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]")
+TEMPLATE_LIST_TEST_CASE("spore::slot-map::concurrency", "[spore::slot-map]", concurrency_test_list)
 {
     using namespace spore;
 
-    using slot_map_t = slot_map_mt<slot_key, slot_value, 1'048'576>;
+    using slot_map_t = TestType;
 
     SECTION("It should stay consistent across multiple threads")
     {

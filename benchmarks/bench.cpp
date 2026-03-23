@@ -1,8 +1,8 @@
 #define SPORE_SLOT_MAP_ASSERT(...)
 #define SPORE_SLOT_MAP_ASSERT_NOEXCEPT (true)
-#define SPORE_SLOT_MAP_MIN_PAGE_SIZE 0xfff
-#define SPORE_SLOT_MAP_MIN_SLOT_NUM 128
-#define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
+// #define SPORE_SLOT_MAP_MIN_PAGE_SIZE 0xfff
+// #define SPORE_SLOT_MAP_MIN_SLOT_NUM 128
+// #define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
 
 #include "spore/slot_map.hpp"
 
@@ -276,12 +276,21 @@ int main()
         std::vector<bench_result> results;
         results.reserve(128);
 
-        // slot_map
+        // slot map static
+        for_each_size(size_sequence, [&]<size_t size_v> {
+            std::ranges::for_each(configs, [&](const bench_config& config) {
+                constexpr size_t capacity = std::ranges::max(std::span { std::data(configs), std::size(configs) }, std::ranges::less {}, &bench_config::action_max).action_max;
+                static_slot_map_st<slot_key, bench_value<size_v>, capacity> map;
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static st)");
+            });
+        });
+
+        // slot map dynamic
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 constexpr size_t capacity = std::ranges::max(std::span { std::data(configs), std::size(configs) }, std::ranges::less {}, &bench_config::action_max).action_max;
                 slot_map_st<slot_key, bench_value<size_v>, capacity> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (st)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic st)");
             });
         });
 
