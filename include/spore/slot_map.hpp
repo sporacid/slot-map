@@ -693,7 +693,7 @@ namespace spore
     {
         static_assert(size_v > 0);
 
-        std::tuple<value_t*, version_t*> find(const size_t index) noexcept
+        constexpr std::tuple<value_t*, version_t*> find(const size_t index) noexcept
         {
             if (index < size_v) [[likely]]
             {
@@ -703,7 +703,7 @@ namespace spore
             return std::tuple { nullptr, nullptr };
         }
 
-        std::tuple<const value_t*, const version_t*> find(const size_t index) const noexcept
+        constexpr std::tuple<const value_t*, const version_t*> find(const size_t index) const noexcept
         {
             if (index < size_v) [[likely]]
             {
@@ -737,13 +737,13 @@ namespace spore
         version_t versions[size_v] {};
     };
 
-    template <typename value_t, typename version_t, typename mutex_t, size_t block_v, size_t slot_v>
+    template <typename value_t, typename version_t, size_t block_v, size_t slot_v, bool concurrent_v>
     struct slot_storage_dynamic
     {
         static_assert(block_v > 0);
         static_assert(slot_v > 0);
 
-        std::tuple<value_t*, version_t*> find(const size_t index) const noexcept
+        constexpr std::tuple<value_t*, version_t*> find(const size_t index) const noexcept
         {
             const size_t block_index = index / slot_v;
             const size_t slot_index = index % slot_v;
@@ -756,7 +756,7 @@ namespace spore
             return std::tuple { nullptr, nullptr };
         }
 
-        std::tuple<value_t&, version_t&> at(const size_t index) noexcept
+        constexpr std::tuple<value_t&, version_t&> at(const size_t index) noexcept
         {
             const size_t block_index = index / slot_v;
             const size_t slot_index = index % slot_v;
@@ -772,6 +772,8 @@ namespace spore
         }
 
       private:
+        using mutex_t = std::conditional_t<concurrent_v, std::mutex, no_mutex>;
+
         struct block
         {
             value_t slots[slot_v];
@@ -783,11 +785,18 @@ namespace spore
 
         [[nodiscard]] constexpr block* try_get_block(const size_t index) const noexcept
         {
-            if (_blocks[index] == nullptr)
+            if (_blocks[index] == nullptr) [[unlikely]]
             {
-                std::unique_lock lock { _mutex };
+                if constexpr (concurrent_v)
+                {
+                    std::unique_lock lock { _mutex };
 
-                if (_blocks[index] == nullptr)
+                    if (_blocks[index] == nullptr)
+                    {
+                        return nullptr;
+                    }
+                }
+                else
                 {
                     return nullptr;
                 }
@@ -798,11 +807,18 @@ namespace spore
 
         [[nodiscard]] constexpr block& get_block(const size_t index) noexcept
         {
-            if (_blocks[index] == nullptr)
+            if (_blocks[index] == nullptr) [[unlikely]]
             {
-                std::unique_lock lock { _mutex };
+                if constexpr (concurrent_v)
+                {
+                    std::unique_lock lock { _mutex };
 
-                if (_blocks[index] == nullptr)
+                    if (_blocks[index] == nullptr)
+                    {
+                        _blocks[index] = std::make_unique<block>();
+                    }
+                }
+                else
                 {
                     _blocks[index] = std::make_unique<block>();
                 }
@@ -1443,7 +1459,7 @@ namespace spore
         std::unique_ptr<data> _data;
     };
 #else
-    template <typename key_t, typename value_t, typename key_traits_t, typename map_traits_t, typename storage_t, typename bitset_t>
+    template <typename key_t, typename value_t, typename key_traits_t, typename storage_t, typename bitset_t, bool concurrent_v>
     struct basic_slot_map
     {
         // static_assert(opts_v.block_num > 0);
@@ -1490,7 +1506,10 @@ namespace spore
 
                 const size_t index = *_bit_it;
 
-                map_traits_t::acquire_fence();
+                if constexpr (concurrent_v)
+                {
+                    std::atomic_thread_fence(std::memory_order_acquire);
+                }
 
                 value_t& slot = _self->data->slots[index];
 
@@ -1595,7 +1614,10 @@ namespace spore
 
             std::construct_at(&slot, std::forward<args_t>(args)...);
 
-            map_traits_t::release_fence();
+            if constexpr (concurrent_v)
+            {
+                std::atomic_thread_fence(std::memory_order_release);
+            }
 
             return key_traits_t::make_key(index, version);
         }
@@ -1626,7 +1648,10 @@ namespace spore
 
             const version_type version = key_traits_t::version(key);
 
-            map_traits_t::acquire_fence();
+            if constexpr (concurrent_v)
+            {
+                std::atomic_thread_fence(std::memory_order_acquire);
+            }
 
             if (version != *slot_version) [[unlikely]]
             {
@@ -1649,7 +1674,10 @@ namespace spore
 
             auto [slot, slot_version] = _data->storage.at(index);
 
-            map_traits_t::acquire_fence();
+            if constexpr (concurrent_v)
+            {
+                std::atomic_thread_fence(std::memory_order_acquire);
+            }
 
             SPORE_SLOT_MAP_ASSERT(key_traits_t::version(key) == slot_version);
 
@@ -1674,7 +1702,10 @@ namespace spore
 
             const version_type version = key_traits_t::version(key);
 
-            map_traits_t::acquire_fence();
+            if constexpr (concurrent_v)
+            {
+                std::atomic_thread_fence(std::memory_order_acquire);
+            }
 
             if (version != slot_version) [[unlikely]]
             {
@@ -1685,7 +1716,10 @@ namespace spore
 
             ++slot_version;
 
-            map_traits_t::release_fence();
+            if constexpr (concurrent_v)
+            {
+                std::atomic_thread_fence(std::memory_order_release);
+            }
 
             _data->bitset.reset(index);
 
@@ -1767,35 +1801,35 @@ namespace spore
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_map_traits<thread_unsafe>,
-        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, no_mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>,
-        detail::hierarchical_bitset<size_t, slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, no_mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num, false>,
+        detail::hierarchical_bitset<size_t, default_slot_map_opts<value_t, capacity_v>().block_num * default_slot_map_opts<value_t, capacity_v>().slot_num, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        false>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using slot_map_mt = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_map_traits<thread_safe>,
-        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, std::mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>,
-        detail::hierarchical_bitset<std::atomic<size_t>, slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, std::mutex, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        slot_storage_dynamic<value_t, typename slot_key_traits<key_t>::version_type, default_slot_map_opts<value_t, capacity_v>().block_num, default_slot_map_opts<value_t, capacity_v>().slot_num, true>,
+        detail::hierarchical_bitset<std::atomic<size_t>, default_slot_map_opts<value_t, capacity_v>().block_num * default_slot_map_opts<value_t, capacity_v>().slot_num, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        true>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using static_slot_map_st = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_map_traits<thread_unsafe>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<size_t, slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<size_t, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        false>;
 
     template <typename key_t, typename value_t, size_t capacity_v>
     using static_slot_map_mt = basic_slot_map<
         key_t,
         value_t,
         slot_key_traits<key_t>,
-        slot_map_traits<thread_safe>,
         slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>,
-        detail::hierarchical_bitset<std::atomic<size_t>, slot_storage_static<value_t, typename slot_key_traits<key_t>::version_type, capacity_v>::capacity(), default_slot_map_opts<value_t, capacity_v>().level_num>>;
+        detail::hierarchical_bitset<std::atomic<size_t>, capacity_v, default_slot_map_opts<value_t, capacity_v>().level_num>,
+        true>;
 #endif
 }
