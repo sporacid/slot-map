@@ -32,6 +32,14 @@
 #    define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
 #endif
 
+#if defined(_MSC_VER)
+#    define SPORE_SLOT_MAP_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#    define SPORE_SLOT_MAP_INLINE inline __attribute__((always_inline))
+#else
+#    define SPORE_SLOT_MAP_INLINE inline
+#endif
+
 namespace spore
 {
     namespace detail
@@ -145,7 +153,7 @@ namespace spore
             }
 
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr value_t get_word(const hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index) noexcept
+            [[nodiscard]] static constexpr word_type get_word(const hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index) noexcept
             {
                 const auto& word = get_words<target_depth_v>(bits);
                 return word[index];
@@ -286,7 +294,7 @@ namespace spore
             }
 
             template <size_t target_depth_v, size_t size_v, size_t depth_v>
-            [[nodiscard]] static constexpr value_t get_word(const hierarchical_bits<std::atomic<value_t>, size_v, depth_v>& bits, const size_t index) noexcept
+            [[nodiscard]] static constexpr word_type get_word(const hierarchical_bits<std::atomic<value_t>, size_v, depth_v>& bits, const size_t index) noexcept
             {
                 const auto& word = get_words<target_depth_v>(bits);
                 return word[index].load(std::memory_order_acquire);
@@ -472,7 +480,7 @@ namespace spore
 
                 constexpr void load_word() noexcept
                 {
-                    const word_type word = traits_type::get_word<max_depth_v - 1>(_self->bits, _word_index);
+                    const word_type word = traits_type::template get_word<max_depth_v - 1>(_self->bits, _word_index);
 
                     if constexpr (set_v)
                     {
@@ -553,12 +561,6 @@ namespace spore
                 return traits_type::template pop_unset<0>(bits, 0, root_size);
             }
         };
-
-        struct empty_mutex
-        {
-            static constexpr void lock() noexcept {}
-            static constexpr void unlock() noexcept {}
-        };
     }
 
     struct slot_key
@@ -597,19 +599,19 @@ namespace spore
         alignas(value_t) uint8_t bytes[sizeof(value_t)];
 
         template <typename... args_t>
-        void construct(args_t&&... args)
+        SPORE_SLOT_MAP_INLINE void construct(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...>)
         {
             value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
             std::construct_at(ptr, std::forward<args_t>(args)...);
         }
 
-        void destroy()
+        SPORE_SLOT_MAP_INLINE void destroy() noexcept(std::is_nothrow_destructible_v<value_t>)
         {
             value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
             std::destroy_at(ptr);
         }
 
-        value_t& get()
+        SPORE_SLOT_MAP_INLINE value_t& get() noexcept
         {
             value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
             return *ptr;
@@ -621,14 +623,14 @@ namespace spore
     {
         static_assert(size_v > 0);
 
-        constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        SPORE_SLOT_MAP_INLINE constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < size_v);
 
             return std::tie(_slots[index], _versions[index]);
         }
 
-        constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) noexcept
+        SPORE_SLOT_MAP_INLINE constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) noexcept
         {
             if (index < size_v) [[likely]]
             {
@@ -653,10 +655,12 @@ namespace spore
     {
         static_assert(size_v > 0);
 
-        static constexpr size_t num_slot = std::clamp<size_t>(SPORE_SLOT_MAP_MIN_PAGE_SIZE / sizeof(value_t), SPORE_SLOT_MAP_MIN_SLOT_NUM, size_v);
+        static constexpr size_t page_size = SPORE_SLOT_MAP_MIN_PAGE_SIZE;
+        static constexpr size_t num_slot_min = SPORE_SLOT_MAP_MIN_SLOT_NUM;
+        static constexpr size_t num_slot = std::clamp<size_t>(page_size / sizeof(value_t), num_slot_min, size_v);
         static constexpr size_t num_block = size_v / num_slot;
 
-        constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept
+        SPORE_SLOT_MAP_INLINE constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept
         {
             const size_t block_index = index / num_slot;
             const size_t slot_index = index % num_slot;
@@ -666,7 +670,7 @@ namespace spore
             return std::tie(block.slots[slot_index], block.versions[slot_index]);
         }
 
-        constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) const noexcept
+        SPORE_SLOT_MAP_INLINE constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) const noexcept
         {
             const size_t block_index = index / num_slot;
             const size_t slot_index = index % num_slot;
@@ -685,52 +689,62 @@ namespace spore
         }
 
       private:
-        using mutex_t = std::conditional_t<concurrent_v, std::mutex, detail::empty_mutex>;
-
         struct block
         {
             slot_value<value_t> slots[num_slot] {};
             version_t versions[num_slot] {};
         };
 
-        mutable mutex_t _mutex;
-        std::unique_ptr<block> _blocks[num_block] {};
+        struct block_data
+        {
+            std::unique_ptr<block> blocks[num_block] {};
+        };
 
-        [[nodiscard]] constexpr block& get_block(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        struct concurrent_block_data
+        {
+            mutable std::mutex mutex;
+            std::unique_ptr<block> blocks[num_block] {};
+        };
+
+        using block_data_t = std::conditional_t<concurrent_v, concurrent_block_data, block_data>;
+
+        block_data_t _data;
+
+        [[nodiscard]] SPORE_SLOT_MAP_INLINE constexpr block& get_block(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < num_block);
 
-            if (_blocks[index] == nullptr) [[unlikely]]
+            if (_data.blocks[index] == nullptr) [[unlikely]]
             {
                 if constexpr (concurrent_v)
                 {
-                    std::unique_lock lock { _mutex };
+                    std::unique_lock lock { _data.mutex };
 
-                    if (_blocks[index] == nullptr)
+                    if (_data.blocks[index] == nullptr)
                     {
-                        _blocks[index] = std::make_unique<block>();
+                        _data.blocks[index] = std::make_unique<block>();
                     }
                 }
                 else
                 {
-                    _blocks[index] = std::make_unique<block>();
+                    _data.blocks[index] = std::make_unique<block>();
                 }
             }
 
-            return *_blocks[index];
+            return *_data.blocks[index];
         }
 
-        [[nodiscard]] constexpr block* try_get_block(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        [[nodiscard]] SPORE_SLOT_MAP_INLINE constexpr block* try_get_block(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < num_block);
 
-            if (_blocks[index] == nullptr) [[unlikely]]
+            if (_data.blocks[index] == nullptr) [[unlikely]]
             {
                 if constexpr (concurrent_v)
                 {
-                    std::unique_lock lock { _mutex };
+                    std::unique_lock lock { _data.mutex };
 
-                    if (_blocks[index] == nullptr)
+                    if (_data.blocks[index] == nullptr)
                     {
                         return nullptr;
                     }
@@ -741,7 +755,7 @@ namespace spore
                 }
             }
 
-            return _blocks[index].get();
+            return _data.blocks[index].get();
         }
     };
 
@@ -755,12 +769,11 @@ namespace spore
         template <bool const_v>
         struct iterator_impl
         {
-            using this_type = std::conditional_t<const_v, const basic_slot_map, basic_slot_map>;
             using value_type = std::conditional_t<const_v, const value_t, value_t>;
             using bit_iterator = bitset_t::set_view::iterator;
 
-            constexpr iterator_impl(this_type& self, const bit_iterator bit_it) noexcept
-                : _self(&self),
+            constexpr iterator_impl(storage_type& storage, const bit_iterator bit_it) noexcept
+                : _storage(&storage),
                   _bit_it(bit_it)
             {
             }
@@ -777,7 +790,7 @@ namespace spore
 
             constexpr value_type& operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
-                SPORE_SLOT_MAP_ASSERT(_self != nullptr);
+                SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
 
                 const size_t index = *_bit_it;
 
@@ -786,14 +799,23 @@ namespace spore
                     std::atomic_thread_fence(std::memory_order_acquire);
                 }
 
-                value_t& slot = _self->data->slots[index];
-
-                return slot;
+                auto [slot, _] = _storage->at(index);
+                return slot.get();
             }
 
-            constexpr value_type* operator->() const noexcept
+            constexpr value_type* operator->() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
-                return &operator*();
+                SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
+
+                const size_t index = *_bit_it;
+
+                if constexpr (concurrent_v)
+                {
+                    std::atomic_thread_fence(std::memory_order_acquire);
+                }
+
+                auto [slot, _] = _storage->try_at(index);
+                return slot.get();
             }
 
             constexpr iterator_impl& operator++() noexcept
@@ -827,7 +849,7 @@ namespace spore
             }
 
           private:
-            this_type* _self = nullptr;
+            storage_type* _storage = nullptr;
             bit_iterator _bit_it;
         };
 
@@ -841,8 +863,10 @@ namespace spore
         {
         }
 
-        constexpr ~basic_slot_map() noexcept(std::is_nothrow_destructible_v<value_t>)
+        constexpr ~basic_slot_map() noexcept(std::is_nothrow_destructible_v<value_t> and SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+
             for (size_t index = 0; index < storage_t::size(); ++index)
             {
                 if (_data->bitset.is_set(index))
@@ -853,29 +877,35 @@ namespace spore
             }
         }
 
-        [[nodiscard]] constexpr iterator begin() noexcept
+        [[nodiscard]] constexpr iterator begin() noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
-            return iterator { *this };
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+            return iterator { _data->storage, _data->bitset.as_view().begin() };
         }
 
-        [[nodiscard]] constexpr iterator end() noexcept
+        [[nodiscard]] constexpr iterator end() noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
-            return iterator { *this, nullptr };
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+            return iterator { _data->storage, _data->bitset.as_view().end() };
         }
 
-        [[nodiscard]] constexpr const_iterator begin() const noexcept
+        [[nodiscard]] constexpr const_iterator begin() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
-            return const_iterator { *this };
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+            return const_iterator { _data->storage, _data->bitset.as_view().begin() };
         }
 
-        [[nodiscard]] constexpr const_iterator end() const noexcept
+        [[nodiscard]] constexpr const_iterator end() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
-            return const_iterator { *this, nullptr };
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+            return const_iterator { _data->storage, _data->bitset.as_view().end() };
         }
 
         template <typename... args_t>
-        [[nodiscard]] constexpr std::optional<key_t> try_emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...>)
+        [[nodiscard]] constexpr std::optional<key_t> try_emplace(args_t&&... args) noexcept(std::is_nothrow_constructible_v<value_t, args_t&&...> and SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+
             const std::optional<size_t> maybe_index = _data->bitset.pop_unset();
 
             if (not maybe_index.has_value()) [[unlikely]]
@@ -905,8 +935,10 @@ namespace spore
             return key.value();
         }
 
-        [[nodiscard]] constexpr value_t* try_at(const key_t& key) noexcept
+        [[nodiscard]] constexpr value_t* try_at(const key_t& key) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+
             const index_type index = key_traits_t::index(key);
 
             if (_data->bitset.is_unset(index)) [[unlikely]]
@@ -936,13 +968,15 @@ namespace spore
             return &slot->get();
         }
 
-        [[nodiscard]] constexpr const value_t* try_at(const key_t& key) const noexcept
+        [[nodiscard]] constexpr const value_t* try_at(const key_t& key) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             return const_cast<basic_slot_map&>(*this).try_at(key);
         }
 
         [[nodiscard]] constexpr value_t& at(const key_t& key) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+
             const index_type index = key_traits_t::index(key);
 
             SPORE_SLOT_MAP_ASSERT(_data->bitset.is_set(index));
@@ -959,13 +993,15 @@ namespace spore
             return slot.get();
         }
 
-        [[nodiscard]] constexpr const value_t& at(const key_t& key) const noexcept
+        [[nodiscard]] constexpr const value_t& at(const key_t& key) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             return const_cast<basic_slot_map&>(*this).at(key);
         }
 
-        constexpr bool erase(const key_t& key) noexcept(std::is_nothrow_destructible_v<value_t>)
+        constexpr bool erase(const key_t& key) noexcept(std::is_nothrow_destructible_v<value_t> and SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
+            SPORE_SLOT_MAP_ASSERT(_data != nullptr);
+
             const index_type index = key_traits_t::index(key);
 
             if (_data->bitset.is_unset(index))

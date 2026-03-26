@@ -17,20 +17,20 @@
 
 static constexpr size_t capacity = 1024;
 
-struct slot_value
+struct slot_data
 {
     size_t value {};
 };
 
 using unit_test_list = std::tuple<
-    spore::slot_map_st<spore::slot_key, slot_value, capacity>,
-    spore::slot_map_mt<spore::slot_key, slot_value, capacity>,
-    spore::static_slot_map_st<spore::slot_key, slot_value, capacity>,
-    spore::static_slot_map_mt<spore::slot_key, slot_value, capacity>>;
+    spore::slot_map_st<spore::slot_key, slot_data, capacity>,
+    spore::slot_map_mt<spore::slot_key, slot_data, capacity>,
+    spore::static_slot_map_st<spore::slot_key, slot_data, capacity>,
+    spore::static_slot_map_mt<spore::slot_key, slot_data, capacity>>;
 
 using concurrency_test_list = std::tuple<
-    spore::slot_map_mt<spore::slot_key, slot_value, 1024 * 1024>,
-    spore::static_slot_map_mt<spore::slot_key, slot_value, 1024 * 1024>>;
+    spore::slot_map_mt<spore::slot_key, slot_data, 1024 * 1024>,
+    spore::static_slot_map_mt<spore::slot_key, slot_data, 1024 * 1024>>;
 
 TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 {
@@ -54,7 +54,7 @@ TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
         constexpr size_t expected = 42;
 
         const slot_key key = map.emplace(expected);
-        const slot_value* value = map.try_at(key);
+        const slot_data* value = map.try_at(key);
 
         REQUIRE(value != nullptr);
         REQUIRE(value->value == expected);

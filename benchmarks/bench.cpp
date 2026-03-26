@@ -1,9 +1,3 @@
-#define SPORE_SLOT_MAP_ASSERT(...)
-#define SPORE_SLOT_MAP_ASSERT_NOEXCEPT (true)
-// #define SPORE_SLOT_MAP_MIN_PAGE_SIZE 0xfff
-// #define SPORE_SLOT_MAP_MIN_SLOT_NUM 128
-// #define SPORE_SLOT_MAP_MAX_ROOT_WORD_NUM 8
-
 #include "spore/slot_map.hpp"
 
 #include "plf/colony.hpp"
@@ -14,14 +8,6 @@
 #include <random>
 #include <ranges>
 #include <vector>
-
-#if defined(_MSC_VER)
-#    define SPORE_ALWAYS_INLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-#    define SPORE_ALWAYS_INLINE inline __attribute__((always_inline))
-#else
-#    define SPORE_ALWAYS_INLINE inline
-#endif
 
 namespace spore::benchmarks
 {
@@ -35,10 +21,11 @@ namespace spore::benchmarks
         duration_t get;
         duration_t set;
         duration_t reset;
+        duration_t iteration;
 
         duration_t total() const
         {
-            return get + set + reset;
+            return get + set + reset + iteration;
         }
     };
 
@@ -65,19 +52,19 @@ namespace spore::benchmarks
 
         using plf::colony<value_t>::emplace;
 
-        SPORE_ALWAYS_INLINE value_t& at(const iterator& it) const
+        SPORE_SLOT_MAP_INLINE value_t& at(const iterator& it) const
         {
             return *it;
         }
 
-        SPORE_ALWAYS_INLINE bool erase(const iterator& it)
+        SPORE_SLOT_MAP_INLINE bool erase(const iterator& it)
         {
             return plf::colony<value_t>::erase(it) != plf::colony<value_t>::end();
         }
     };
 
     template <typename value_t>
-    SPORE_ALWAYS_INLINE void no_optimizations(value_t& value)
+    SPORE_SLOT_MAP_INLINE void no_optimizations(value_t& value)
     {
 #if defined(__clang__)
         asm volatile("" : "+r,m"(value) : : "memory");
@@ -90,7 +77,7 @@ namespace spore::benchmarks
     }
 
     template <typename value_t>
-    SPORE_ALWAYS_INLINE void no_optimizations(const value_t& value)
+    SPORE_SLOT_MAP_INLINE void no_optimizations(const value_t& value)
     {
 #if defined(__clang__) || defined(__GNUC__)
         asm volatile("" : : "r,m"(value) : "memory");
@@ -108,6 +95,7 @@ namespace spore::benchmarks
         std::atomic<uint64_t> get;
         std::atomic<uint64_t> set;
         std::atomic<uint64_t> reset;
+        std::atomic<uint64_t> iteration;
 
         std::vector<std::jthread> threads;
         threads.reserve(config.parallelism);
@@ -157,6 +145,13 @@ namespace spore::benchmarks
                         }
                     });
 
+                    add_duration(iteration, [&] {
+                        for (const value_t& value : map)
+                        {
+                            no_optimizations(value);
+                        }
+                    });
+
                     add_duration(reset, [&] {
                         for (size_t action_index = 0; action_index < iteration_num; ++action_index)
                         {
@@ -188,6 +183,7 @@ namespace spore::benchmarks
             .get { get.load() },
             .set { set.load() },
             .reset { reset.load() },
+            .iteration { iteration.load() },
         });
     }
 
@@ -208,8 +204,8 @@ namespace spore::benchmarks
             return std::chrono::duration_cast<std::chrono::duration<float, std::milli>>(duration).count();
         };
 
-        const std::string header = std::format("{:<5} | {:<5} | {:<15} | {:<15} | {:<15} | {:<15} | {:<25}", "par", "size", "get (ms)", "set (ms)", "reset (ms)", "total (ms)", "name");
-        const std::string separator = std::format("{0:-<5} | {0:-<5} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<25}", "");
+        const std::string header = std::format("{:<5} | {:<5} | {:<15} | {:<15} | {:<15} | {:<15} | {:<25}", "par", "size", "get (ms)", "set (ms)", "reset (ms)", "iter (ms)", "total (ms)", "name");
+        const std::string separator = std::format("{0:-<5} | {0:-<5} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<25}", "");
 
         size_t current_size = 0;
 
@@ -217,8 +213,8 @@ namespace spore::benchmarks
 
         for (const bench_result& result : results)
         {
-            std::string result_string = std::format("{:>5} | {:>5} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:<25}",
-                result.parallelism, result.size, to_millis(result.get), to_millis(result.set), to_millis(result.reset), to_millis(result.total()), result.name);
+            std::string result_string = std::format("{:>5} | {:>5} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:<25}",
+                result.parallelism, result.size, to_millis(result.get), to_millis(result.set), to_millis(result.reset), to_millis(result.iteration), to_millis(result.total()), result.name);
 
             if (current_size != result.size)
             {
