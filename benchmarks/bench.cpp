@@ -211,7 +211,6 @@ namespace spore::benchmarks
         const std::string header = std::format("{:<5} | {:<5} | {:<15} | {:<15} | {:<15} | {:<15} | {:<25}", "par", "size", "get (ms)", "set (ms)", "reset (ms)", "total (ms)", "name");
         const std::string separator = std::format("{0:-<5} | {0:-<5} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<25}", "");
 
-        // size_t current_parallelism = 0;
         size_t current_size = 0;
 
         std::cout << header << std::endl;
@@ -220,13 +219,6 @@ namespace spore::benchmarks
         {
             std::string result_string = std::format("{:>5} | {:>5} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:<25}",
                 result.parallelism, result.size, to_millis(result.get), to_millis(result.set), to_millis(result.reset), to_millis(result.total()), result.name);
-
-            // if (current_parallelism != result.parallelism)
-            // {
-            //     current_parallelism = result.parallelism;
-            //
-            //     std::cout << separator << std::endl;
-            // }
 
             if (current_size != result.size)
             {
@@ -262,7 +254,7 @@ int main()
                 .iteration = 10,
                 .action_min = 10'000,
                 .action_max = 50'000,
-                .read_num = 10,
+                .read_num = 25,
             },
             bench_config {
                 .parallelism = 1,
@@ -273,13 +265,14 @@ int main()
             },
         };
 
+        constexpr size_t capacity = std::ranges::max(configs, std::ranges::less {}, &bench_config::action_max).action_max;
+
         std::vector<bench_result> results;
         results.reserve(128);
 
         // slot map static
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
-                constexpr size_t capacity = std::ranges::max(std::span { std::data(configs), std::size(configs) }, std::ranges::less {}, &bench_config::action_max).action_max;
                 static_slot_map_st<slot_key, bench_value<size_v>, capacity> map;
                 bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static st)");
             });
@@ -288,7 +281,6 @@ int main()
         // slot map dynamic
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
-                constexpr size_t capacity = std::ranges::max(std::span { std::data(configs), std::size(configs) }, std::ranges::less {}, &bench_config::action_max).action_max;
                 slot_map_st<slot_key, bench_value<size_v>, capacity> map;
                 bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic st)");
             });
@@ -340,13 +332,16 @@ int main()
             },
         };
 
+        constexpr auto projection = [](const bench_config& config) { return config.parallelism * config.action_max; };
+        constexpr size_t capacity = std::ranges::max(configs | std::views::transform(projection), std::ranges::less {});
+
         std::vector<bench_result> results;
         results.reserve(128);
 
         // slot map static
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
-                static_slot_map_mt<slot_key, bench_value<size_v>, 1'048'576> map;
+                static_slot_map_mt<slot_key, bench_value<size_v>, capacity> map;
                 bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static mt)");
             });
         });
@@ -354,7 +349,7 @@ int main()
         // slot map dynamic
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
-                slot_map_mt<slot_key, bench_value<size_v>, 1'048'576> map;
+                slot_map_mt<slot_key, bench_value<size_v>, capacity> map;
                 bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic mt)");
             });
         });

@@ -553,6 +553,12 @@ namespace spore
                 return traits_type::template pop_unset<0>(bits, 0, root_size);
             }
         };
+
+        struct empty_mutex
+        {
+            static constexpr void lock() noexcept {}
+            static constexpr void unlock() noexcept {}
+        };
     }
 
     struct slot_key
@@ -585,43 +591,29 @@ namespace spore
         }
     };
 
-    struct thread_safe;
-    struct thread_unsafe;
-
-    struct no_mutex
+    template <typename value_t>
+    struct slot_value
     {
-        static constexpr void lock() noexcept {}
-        static constexpr void unlock() noexcept {}
-    };
+        alignas(value_t) uint8_t bytes[sizeof(value_t)];
 
-    template <typename tag_t>
-    struct slot_map_traits;
-
-    template <>
-    struct slot_map_traits<thread_safe>
-    {
-        using bits_type = std::atomic<size_t>;
-        using mutex_type = std::mutex;
-
-        static void acquire_fence()
+        template <typename... args_t>
+        void construct(args_t&&... args)
         {
-            std::atomic_thread_fence(std::memory_order_acquire);
+            value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
+            std::construct_at(ptr, std::forward<args_t>(args)...);
         }
 
-        static void release_fence()
+        void destroy()
         {
-            std::atomic_thread_fence(std::memory_order_release);
+            value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
+            std::destroy_at(ptr);
         }
-    };
 
-    template <>
-    struct slot_map_traits<thread_unsafe>
-    {
-        using bits_type = size_t;
-        using mutex_type = no_mutex;
-
-        static constexpr void acquire_fence() {}
-        static constexpr void release_fence() {}
+        value_t& get()
+        {
+            value_t* ptr = reinterpret_cast<value_t*>(std::addressof(bytes));
+            return *ptr;
+        }
     };
 
     template <typename value_t, typename version_t, size_t size_v>
@@ -629,35 +621,18 @@ namespace spore
     {
         static_assert(size_v > 0);
 
-        constexpr std::tuple<value_t&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+        constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
         {
             SPORE_SLOT_MAP_ASSERT(index < size_v);
 
-            return std::tie(slots[index], versions[index]);
+            return std::tie(_slots[index], _versions[index]);
         }
 
-        constexpr std::tuple<const value_t&, const version_t&> at(const size_t index) const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
-        {
-            SPORE_SLOT_MAP_ASSERT(index < size_v);
-
-            return std::tie(slots[index], versions[index]);
-        }
-
-        constexpr std::tuple<value_t*, version_t*> try_at(const size_t index) noexcept
+        constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) noexcept
         {
             if (index < size_v) [[likely]]
             {
-                return std::tuple { &slots[index], &versions[index] };
-            }
-
-            return std::tuple { nullptr, nullptr };
-        }
-
-        constexpr std::tuple<const value_t*, const version_t*> try_at(const size_t index) const noexcept
-        {
-            if (index < size_v) [[likely]]
-            {
-                return std::tuple { &slots[index], &versions[index] };
+                return std::tuple { &_slots[index], &_versions[index] };
             }
 
             return std::tuple { nullptr, nullptr };
@@ -669,8 +644,8 @@ namespace spore
         }
 
       private:
-        value_t slots[size_v];
-        version_t versions[size_v] {};
+        slot_value<value_t> _slots[size_v] {};
+        version_t _versions[size_v] {};
     };
 
     template <typename value_t, typename version_t, size_t size_v, bool concurrent_v>
@@ -681,7 +656,7 @@ namespace spore
         static constexpr size_t num_slot = std::clamp<size_t>(SPORE_SLOT_MAP_MIN_PAGE_SIZE / sizeof(value_t), SPORE_SLOT_MAP_MIN_SLOT_NUM, size_v);
         static constexpr size_t num_block = size_v / num_slot;
 
-        constexpr std::tuple<value_t&, version_t&> at(const size_t index) noexcept
+        constexpr std::tuple<slot_value<value_t>&, version_t&> at(const size_t index) noexcept
         {
             const size_t block_index = index / num_slot;
             const size_t slot_index = index % num_slot;
@@ -691,7 +666,7 @@ namespace spore
             return std::tie(block.slots[slot_index], block.versions[slot_index]);
         }
 
-        constexpr std::tuple<value_t*, version_t*> try_at(const size_t index) const noexcept
+        constexpr std::tuple<slot_value<value_t>*, version_t*> try_at(const size_t index) const noexcept
         {
             const size_t block_index = index / num_slot;
             const size_t slot_index = index % num_slot;
@@ -710,11 +685,11 @@ namespace spore
         }
 
       private:
-        using mutex_t = std::conditional_t<concurrent_v, std::mutex, no_mutex>;
+        using mutex_t = std::conditional_t<concurrent_v, std::mutex, detail::empty_mutex>;
 
         struct block
         {
-            value_t slots[num_slot];
+            slot_value<value_t> slots[num_slot] {};
             version_t versions[num_slot] {};
         };
 
@@ -873,7 +848,7 @@ namespace spore
                 if (_data->bitset.is_set(index))
                 {
                     auto [slot, _] = _data->storage.at(index);
-                    std::destroy_at(&slot);
+                    slot.destroy();
                 }
             }
         }
@@ -912,7 +887,7 @@ namespace spore
 
             auto [slot, version] = _data->storage.at(index);
 
-            std::construct_at(&slot, std::forward<args_t>(args)...);
+            slot.construct(std::forward<args_t>(args)...);
 
             if constexpr (concurrent_v)
             {
@@ -958,7 +933,7 @@ namespace spore
                 return nullptr;
             }
 
-            return slot;
+            return &slot->get();
         }
 
         [[nodiscard]] constexpr const value_t* try_at(const key_t& key) const noexcept
@@ -981,7 +956,7 @@ namespace spore
 
             SPORE_SLOT_MAP_ASSERT(key_traits_t::version(key) == slot_version);
 
-            return slot;
+            return slot.get();
         }
 
         [[nodiscard]] constexpr const value_t& at(const key_t& key) const noexcept
@@ -1012,7 +987,7 @@ namespace spore
                 return false;
             }
 
-            std::destroy_at(&slot);
+            slot.destroy();
 
             ++slot_version;
 
