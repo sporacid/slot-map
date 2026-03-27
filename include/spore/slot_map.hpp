@@ -772,6 +772,18 @@ namespace spore
             using value_type = std::conditional_t<const_v, const value_t, value_t>;
             using bit_iterator = bitset_t::set_view::iterator;
 
+            struct pair_ref
+            {
+                key_t key;
+                value_type& value;
+            };
+
+            struct pair_ptr
+            {
+                key_t key;
+                value_type* value;
+            };
+
             constexpr iterator_impl(storage_type& storage, const bit_iterator bit_it) noexcept
                 : _storage(&storage),
                   _bit_it(bit_it)
@@ -788,7 +800,7 @@ namespace spore
                 return _bit_it != other._bit_it;
             }
 
-            constexpr value_type& operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+            constexpr pair_ref operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
 
@@ -799,11 +811,15 @@ namespace spore
                     std::atomic_thread_fence(std::memory_order_acquire);
                 }
 
-                auto [slot, _] = _storage->at(index);
-                return slot.get();
+                // return _storage->at(index);
+                auto [slot, version] = _storage->at(index);
+
+                const key_t key = key_traits_t::make_key(static_cast<key_traits_t::index_type>(index), version);
+
+                return pair_ref { key, slot.get() };
             }
 
-            constexpr value_type* operator->() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+            constexpr pair_ptr operator->() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
 
@@ -814,8 +830,15 @@ namespace spore
                     std::atomic_thread_fence(std::memory_order_acquire);
                 }
 
-                auto [slot, _] = _storage->try_at(index);
-                return slot.get();
+                auto [slot, version] = _storage->at(index);
+
+                const key_t key = key_traits_t::make(static_cast<key_traits_t::index_type>(index), *version);
+                // const key_t key = key_traits_t::make(index, *version);
+
+                return pair_ptr { key, &slot.get() };
+                // return _storage->try_at(index);
+                // auto [slot, _] = _storage->try_at(index);
+                // return slot.get();
             }
 
             constexpr iterator_impl& operator++() noexcept

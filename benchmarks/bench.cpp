@@ -9,15 +9,29 @@
 #include <ranges>
 #include <vector>
 
+#define SPORE_SLOT_MAP_README_RESULTS 1
+
 namespace spore::benchmarks
 {
     using duration_t = std::chrono::steady_clock::duration;
 
+    struct bench_config
+    {
+        size_t parallelism = 0;
+        size_t iteration = 0;
+        size_t action_min = 0;
+        size_t action_max = 0;
+        size_t read_num = 0;
+        size_t rng_seed = 0;
+
+        auto operator<=>(const bench_config&) const = default;
+    };
+
     struct bench_result
     {
+        bench_config config;
         std::string_view name;
         size_t size;
-        size_t parallelism;
         duration_t get;
         duration_t set;
         duration_t reset;
@@ -27,16 +41,6 @@ namespace spore::benchmarks
         {
             return get + set + reset + iteration;
         }
-    };
-
-    struct bench_config
-    {
-        size_t parallelism = 1;
-        size_t iteration = 4;
-        size_t action_min = 1'000;
-        size_t action_max = 30'000;
-        size_t read_num = 3;
-        size_t rng_seed = 0;
     };
 
     template <size_t size_v>
@@ -146,7 +150,7 @@ namespace spore::benchmarks
                     });
 
                     add_duration(iteration, [&] {
-                        for (const value_t& value : map)
+                        for (const auto& value : map)
                         {
                             no_optimizations(value);
                         }
@@ -177,9 +181,9 @@ namespace spore::benchmarks
         std::ranges::for_each(threads, &std::jthread::join);
 
         results.push_back({
+            .config = config,
             .name = name,
             .size = sizeof(value_t),
-            .parallelism = config.parallelism,
             .get { get.load() },
             .set { set.load() },
             .reset { reset.load() },
@@ -204,21 +208,21 @@ namespace spore::benchmarks
             return std::chrono::duration_cast<std::chrono::duration<float, std::milli>>(duration).count();
         };
 
-        const std::string header = std::format("{:<5} | {:<5} | {:<15} | {:<15} | {:<15} | {:<15} | {:<25}", "par", "size", "get (ms)", "set (ms)", "reset (ms)", "iter (ms)", "total (ms)", "name");
+        const std::string header = std::format("{:<5} | {:<5} | {:<15} | {:<15} | {:<15} | {:<15} | {:<15} | {:<25}", "par", "size", "get (ms)", "set (ms)", "reset (ms)", "iteration (ms)", "total (ms)", "name");
         const std::string separator = std::format("{0:-<5} | {0:-<5} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<15} | {0:-<25}", "");
 
-        size_t current_size = 0;
+        bench_config current_config;
 
         std::cout << header << std::endl;
 
         for (const bench_result& result : results)
         {
             std::string result_string = std::format("{:>5} | {:>5} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:>15.4f} | {:<25}",
-                result.parallelism, result.size, to_millis(result.get), to_millis(result.set), to_millis(result.reset), to_millis(result.iteration), to_millis(result.total()), result.name);
+                result.config.parallelism, result.size, to_millis(result.get), to_millis(result.set), to_millis(result.reset), to_millis(result.iteration), to_millis(result.total()), result.name);
 
-            if (current_size != result.size)
+            if (current_config != result.config)
             {
-                current_size = result.size;
+                current_config = result.config;
 
                 std::cout << separator << std::endl;
             }
@@ -236,10 +240,15 @@ int main()
     using namespace spore;
     using namespace spore::benchmarks;
 
+#if SPORE_SLOT_MAP_README_RESULTS
+    constexpr auto size_sequence = std::integer_sequence<size_t, 128>();
+#else
     constexpr auto size_sequence = std::integer_sequence<size_t, 1, 8, 32, 128, 512>();
+#endif
+
     constexpr auto sort_results = [](std::vector<bench_result>& results) {
         std::ranges::sort(results, std::ranges::less {},
-            [](const bench_result& result) { return std::tuple(result.size, result.parallelism, result.get.count()); });
+            [](const bench_result& result) { return std::tuple(result.size, result.config.parallelism, result.total().count()); });
     };
 
     // Single thread
@@ -270,7 +279,7 @@ int main()
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 static_slot_map_st<slot_key, bench_value<size_v>, capacity> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static st)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static)");
             });
         });
 
@@ -278,7 +287,7 @@ int main()
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 slot_map_st<slot_key, bench_value<size_v>, capacity> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic st)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic)");
             });
         });
 
@@ -301,22 +310,22 @@ int main()
             bench_config {
                 .parallelism = 2,
                 .iteration = 5,
-                .action_min = 50'000,
-                .action_max = 250'000,
+                .action_min = 40'000,
+                .action_max = 240'000,
                 .read_num = 5,
             },
             bench_config {
                 .parallelism = 4,
                 .iteration = 5,
-                .action_min = 25'000,
-                .action_max = 125'000,
+                .action_min = 20'000,
+                .action_max = 120'000,
                 .read_num = 5,
             },
             bench_config {
                 .parallelism = 8,
                 .iteration = 5,
                 .action_min = 10'000,
-                .action_max = 75'000,
+                .action_max = 60'000,
                 .read_num = 5,
             },
             bench_config {
@@ -338,7 +347,7 @@ int main()
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 static_slot_map_mt<slot_key, bench_value<size_v>, capacity> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static mt)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (static)");
             });
         });
 
@@ -346,7 +355,7 @@ int main()
         for_each_size(size_sequence, [&]<size_t size_v> {
             std::ranges::for_each(configs, [&](const bench_config& config) {
                 slot_map_mt<slot_key, bench_value<size_v>, capacity> map;
-                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic mt)");
+                bench<slot_key, bench_value<size_v>>(map, config, results, "slot map (dynamic)");
             });
         });
 
