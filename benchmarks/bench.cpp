@@ -22,7 +22,7 @@ namespace spore::benchmarks
         size_t action_min = 0;
         size_t action_max = 0;
         size_t read_num = 0;
-        size_t rng_seed = 0;
+        size_t seed = 0;
 
         auto operator<=>(const bench_config&) const = default;
     };
@@ -114,7 +114,7 @@ namespace spore::benchmarks
                 {
                 }
 
-                std::mt19937 rng { static_cast<unsigned int>(config.rng_seed + thread_index) };
+                std::mt19937 rng { static_cast<unsigned int>(config.seed + thread_index) };
                 std::uniform_int_distribution rng_distribution { config.action_min, config.action_max };
 
                 const auto add_duration = [](std::atomic<uint64_t>& duration, auto&& action) {
@@ -254,14 +254,14 @@ int main()
     // Single thread
     {
         constexpr bench_config configs[] {
-            bench_config {
+            {
                 .parallelism = 1,
                 .iteration = 10,
                 .action_min = 10'000,
                 .action_max = 50'000,
                 .read_num = 25,
             },
-            bench_config {
+            {
                 .parallelism = 1,
                 .iteration = 10,
                 .action_min = 100'000,
@@ -307,30 +307,30 @@ int main()
     // Multi thread
     {
         constexpr bench_config configs[] {
-            bench_config {
+            {
                 .parallelism = 2,
                 .iteration = 5,
                 .action_min = 40'000,
                 .action_max = 240'000,
                 .read_num = 5,
             },
-            bench_config {
+            {
                 .parallelism = 4,
                 .iteration = 5,
                 .action_min = 20'000,
                 .action_max = 120'000,
                 .read_num = 5,
             },
-            bench_config {
+            {
                 .parallelism = 8,
                 .iteration = 5,
                 .action_min = 10'000,
                 .action_max = 60'000,
                 .read_num = 5,
             },
-            bench_config {
+            {
                 .parallelism = 16,
-                .iteration = 3,
+                .iteration = 5,
                 .action_min = 5'000,
                 .action_max = 30'000,
                 .read_num = 5,

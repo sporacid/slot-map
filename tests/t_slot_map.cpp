@@ -103,53 +103,47 @@ TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 
     SECTION("It should iterate on all slots")
     {
-        constexpr size_t num_iteration = 100;
+        constexpr size_t num_emplace = 100;
         constexpr size_t num_erase = 25;
 
         slot_map_t map;
 
         std::mt19937 rng { 0 };
-        std::uniform_int_distribution<uint32_t> rng_distribution { 0, num_iteration };
+        std::uniform_int_distribution<uint32_t> rng_distribution { 0, num_emplace };
 
-        std::set<slot_key> expected_keys;
+        std::set<slot_key> erased_keys;
         std::vector<slot_key> keys;
-        keys.reserve(num_iteration);
+        keys.reserve(num_emplace);
 
-        for (size_t index = 0; index < num_iteration; ++index)
+        for (size_t index = 0; index < num_emplace; ++index)
         {
             keys.emplace_back(map.emplace(index));
         }
 
-        for (size_t index = 0; index < num_iteration; ++index)
+        for (size_t index = 0; index < num_emplace; ++index)
         {
             if (index < num_erase)
             {
                 const size_t erase_index = rng_distribution(rng);
-                map.erase(keys[erase_index]);
-            }
-            else
-            {
-                expected_keys.emplace(keys[index]);
+                const auto [_, erased] = erased_keys.emplace(keys[erase_index]);
+
+                if (erased)
+                {
+                    map.erase(keys[erase_index]);
+                }
             }
         }
 
         size_t count = 0;
 
-        for (auto it = map.begin() ; it != map.end(); ++it)
+        for (const auto [key, value] : map)
         {
-            auto [key, value] = *it;
-            REQUIRE(expected_keys.contains(key));
-            ++count;
-
-        }
-
-        for (auto [key, value] : map)
-        {
-            REQUIRE(expected_keys.contains(key));
+            REQUIRE(not erased_keys.contains(key));
             ++count;
         }
 
-        REQUIRE(count == expected_keys.size());
+        const size_t expected_size = keys.size() - erased_keys.size();
+        REQUIRE(count == expected_size);
     }
 }
 
