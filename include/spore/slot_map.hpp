@@ -923,7 +923,23 @@ namespace spore
 
             auto [slot, version] = _data->storage.at(index);
 
-            slot.construct(std::forward<args_t>(args)...);
+            if constexpr (std::is_nothrow_constructible_v<value_t, args_t&&...>)
+            {
+                slot.construct(std::forward<args_t>(args)...);
+            }
+            else
+            {
+                try
+                {
+                    slot.construct(std::forward<args_t>(args)...);
+                }
+                catch (...)
+                {
+                    _data->bitset.reset(index);
+
+                    throw;
+                }
+            }
 
             if constexpr (concurrent_v)
             {
