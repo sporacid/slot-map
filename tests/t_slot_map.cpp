@@ -100,6 +100,10 @@ TEMPLATE_LIST_TEST_CASE("spore::slot-map", "[spore::slot-map]", unit_test_list)
 
             REQUIRE(key.has_value());
         }
+
+        const std::optional<slot_key> key = map.try_emplace();
+
+        REQUIRE(not key.has_value());
     }
 
     SECTION("It should iterate on all slots")

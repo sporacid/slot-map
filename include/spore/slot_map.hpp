@@ -179,6 +179,11 @@ namespace spore
 
                     if constexpr (current_depth_v == depth_v)
                     {
+                        if (child_index >= size_v) [[unlikely]]
+                        {
+                            return std::nullopt;
+                        }
+
                         const word_type new_word = word | (static_cast<word_type>(1) << bit_index);
 
                         words[index] = new_word;
@@ -230,6 +235,8 @@ namespace spore
             template <size_t current_depth_v, size_t size_v, size_t depth_v>
             static constexpr void reset(hierarchical_bits<value_t, size_v, depth_v>& bits, const size_t index) noexcept
             {
+                SPORE_SLOT_MAP_ASSERT(index < size_v);
+
                 auto& words = get_words<current_depth_v>(bits);
 
                 const size_t word_index = index / bit_count<word_type>();
@@ -322,6 +329,11 @@ namespace spore
 
                         if constexpr (current_depth_v == depth_v)
                         {
+                            if (child_index >= size_v) [[unlikely]]
+                            {
+                                return std::nullopt;
+                            }
+
                             const word_type new_word = word | (static_cast<word_type>(1) << bit_index);
 
                             if (words[index].compare_exchange_strong(word, new_word, std::memory_order_release, std::memory_order_relaxed))
@@ -380,6 +392,8 @@ namespace spore
             template <size_t current_depth_v, size_t size_v, size_t depth_v>
             static constexpr void reset(hierarchical_bits<std::atomic<value_t>, size_v, depth_v>& bits, const size_t index) noexcept
             {
+                SPORE_SLOT_MAP_ASSERT(index < size_v);
+
                 auto& words = get_words<current_depth_v>(bits);
 
                 const size_t word_index = index / bit_count<word_type>();
@@ -766,6 +780,8 @@ namespace spore
         using index_type = key_traits_t::index_type;
         using version_type = key_traits_t::version_type;
 
+        static_assert(storage_t::size() <= std::numeric_limits<index_type>::max());
+
         template <bool const_v>
         struct iterator_impl
         {
@@ -788,7 +804,7 @@ namespace spore
                 return _bit_it != other._bit_it;
             }
 
-            constexpr std::tuple<slot_key, value_type&> operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+            constexpr std::tuple<key_t, value_type&> operator*() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
 
@@ -803,10 +819,10 @@ namespace spore
 
                 const key_t key = key_traits_t::make_key(static_cast<key_traits_t::index_type>(index), version);
 
-                return std::tuple<slot_key, value_type&> { key, slot.get() };
+                return std::tuple<key_t, value_type&> { key, slot.get() };
             }
 
-            constexpr std::tuple<slot_key, value_type*> operator->() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
+            constexpr std::tuple<key_t, value_type*> operator->() const noexcept(SPORE_SLOT_MAP_ASSERT_NOEXCEPT)
             {
                 SPORE_SLOT_MAP_ASSERT(_storage != nullptr);
 
@@ -821,7 +837,7 @@ namespace spore
 
                 const key_t key = key_traits_t::make(static_cast<key_traits_t::index_type>(index), *version);
 
-                return std::tuple<slot_key, value_type&> { key, &slot.get() };
+                return std::tuple<key_t, value_type&> { key, &slot.get() };
             }
 
             constexpr iterator_impl& operator++() noexcept
